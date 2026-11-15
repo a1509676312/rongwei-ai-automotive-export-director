@@ -15,10 +15,11 @@ export function validateFollowup(input) {
   if (typeof input.summary !== 'string' || !input.summary.trim()) throw new Error('必须填写本次跟进摘要。')
   if (input.intent_level && !INTENT_LEVELS.includes(input.intent_level)) throw new Error('意向等级只能为 S/A/B/C/D。')
   if (input.purchase_power && !PURCHASE_POWER_LEVELS.includes(input.purchase_power)) throw new Error('购买力只能为 confirmed/likely/unclear/low。')
-  if (input.intent_level || input.purchase_power) {
-    if (typeof input.evidence !== 'string' || input.evidence.trim().length < 5) {
-      throw new Error('填写意向等级或购买力判断时，必须提供至少 5 个字符的原话或事实证据；证据不足请留空不评级。')
-    }
+  if (input.intent_level && (typeof input.intent_evidence !== 'string' || input.intent_evidence.trim().length < 5)) {
+    throw new Error('填写意向等级时，必须单独提供至少 5 个字符的意向证据。')
+  }
+  if (input.purchase_power && (typeof input.purchase_power_evidence !== 'string' || input.purchase_power_evidence.trim().length < 5)) {
+    throw new Error('填写购买力时，必须单独提供至少 5 个字符的购买力证据。')
   }
   if (input.next_followup_at && !/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(input.next_followup_at)) throw new Error('下次跟进时间必须使用 ISO 日期或日期时间。')
   const commitments = input.commitments || []
