@@ -219,9 +219,10 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         if (!['open', 'completed', 'cancelled'].includes(input.status)) throw new Error('承诺状态只能是 open/completed/cancelled。')
         commitment.status = input.status
         commitment.updated_at = clock().toISOString()
-        if (input.note) commitment.update_note = input.note
+        commitment.history = Array.isArray(commitment.history) ? commitment.history : []
+        commitment.history.push({ status: input.status, note: input.note || null, at: commitment.updated_at })
         customer.updatedAt = commitment.updated_at
-        db.audit.push({ id: randomUUID(), customerId: customer.id, action: 'commitment_status_updated', at: commitment.updated_at })
+        db.audit.push({ id: randomUUID(), customerId: customer.id, commitmentId: commitment.id, status: input.status, action: 'commitment_status_updated', at: commitment.updated_at })
         await save(db)
         return { customer_id: customer.id, commitment_id: commitment.id, status: commitment.status }
       })
@@ -282,7 +283,7 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
       const db = await load()
       const q = String(query).trim().toLocaleLowerCase()
       const rows = db.suppliers.filter(item => !q || [item.name, item.country, item.vehicle_model, item.notes].join(' ').toLocaleLowerCase().includes(q))
-      return rows.slice(-Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 50))).reverse().map(item => ({ ...item, cost_status: item.cost_valid_until && item.cost_valid_until < clock().toISOString().slice(0, 10) ? 'expired' : 'valid_or_unspecified' }))
+      return rows.slice(-Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 50))).reverse().map(item => ({ ...item, cost_status: item.cost_valid_until ? (item.cost_valid_until < clock().toISOString().slice(0, 10) ? 'expired' : 'valid') : 'unspecified' }))
     },
     async adAttributionSummary() {
       const db = await load()
