@@ -37,3 +37,11 @@ test('quote calculator applies FOB, CIF and CIP seller-cost boundaries without i
   assert.throws(() => calculateQuote({ incoterm: 'CIF', currency: 'USD', vehicle_cost: 10000, sale_price: 12000, freight: 100 }), /实际运输费用和保险费用/)
   assert.throws(() => calculateQuote({ incoterm: 'DAP', currency: 'USD', vehicle_cost: 1, sale_price: 2 }), /FOB\/CIF\/CIP/)
 })
+
+test('sales lesson and destination fact validation keeps confidence and evidence status explicit', async () => {
+  const { validateSalesLesson, validateDestinationFact } = await import('../src/domain.js')
+  assert.equal(validateSalesLesson({ situation: 'Customer delayed decision', lesson: 'Ask for exact decision date' }).confidence, undefined)
+  assert.throws(() => validateSalesLesson({ situation: 's', lesson: 'l', outcome: 'guaranteed' }), /结果/)
+  assert.throws(() => validateDestinationFact({ country: 'Kenya', content: 'Port notes', evidence_status: 'verified' }), /来源/)
+  assert.equal(validateDestinationFact({ country: 'Kenya', content: 'Port notes', evidence_status: 'historical' }).evidence_status, 'historical')
+})
