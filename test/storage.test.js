@@ -44,7 +44,7 @@ test('multiple contact matches are rejected instead of guessing customer identit
   try {
     const store = makeStore({ directory })
     await store.capture({ conversation_text: 'first', phone: '10001' })
-    await store.capture({ conversation_text: 'second', phone: '10002' })
+    await store.capture({ conversation_text: 'second', whatsapp: '10002' })
     await assert.rejects(() => store.capture({ conversation_text: 'ambiguous', phone: '10001', whatsapp: '10002' }), /多个客户/)
     assert.equal((await store.exportAll()).customers.length, 2)
   } finally { await rm(directory, { recursive: true, force: true }) }
