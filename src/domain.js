@@ -30,7 +30,7 @@ export function validateFollowup(input) {
   if (input.purchase_power && (typeof input.purchase_power_evidence !== 'string' || input.purchase_power_evidence.trim().length < 5)) {
     throw new Error('填写购买力时，必须单独提供至少 5 个字符的购买力证据。')
   }
-  if (input.next_followup_at && !/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(input.next_followup_at)) throw new Error('下次跟进时间必须使用 ISO 日期或日期时间。')
+  if (input.next_followup_at && !validFollowupDate(input.next_followup_at)) throw new Error('下次跟进时间必须是有效的 ISO 日期或日期时间。')
   const commitments = input.commitments || []
   if (!Array.isArray(commitments) || commitments.length > 20) throw new Error('承诺事项最多 20 条。')
   for (const item of commitments) {
