@@ -14,3 +14,19 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm pack --dry-run
+  harness-install-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.9.0'
+      - run: corepack enable
+      - run: corepack prepare pnpm@11.28.5 --activate
+      - run: npm install --global @deepseek-ai/dsh@0.2.2-rc.3
+      - run: dsh plugin --profile rongwei-ci add .
+        env:
+          DSH_HOME: ${{ runner.temp }}/rongwei-dsh-home
+      - run: dsh --profile rongwei-ci --dump-config | grep -q 'rongwei-ai-automotive-export-director'
+        env:
+          DSH_HOME: ${{ runner.temp }}/rongwei-dsh-home
