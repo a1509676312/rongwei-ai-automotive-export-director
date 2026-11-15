@@ -221,7 +221,9 @@ export function apply(ctx) {
     },
     output: stringOutput,
     async execute(args) {
-      return JSON.stringify(calculateQuote(args))
+      const company = await store.getCompanyProfile()
+      const quoteInput = { ...args, minimum_margin_percent: args.minimum_margin_percent ?? company.minimum_margin_percent ?? 0 }
+      return JSON.stringify(calculateQuote(quoteInput))
     }
   }))
 
