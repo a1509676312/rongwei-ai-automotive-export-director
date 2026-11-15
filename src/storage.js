@@ -306,6 +306,28 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         const payload = JSON.parse(await readFile(source, 'utf8'))
         const imported = payload?.data
         if (payload?.format !== 'rongwei-plaintext-export-v1' || !imported || !Array.isArray(imported.customers) || !Array.isArray(imported.audit)) throw new Error('文件不是有效的 Rongwei JSON 导出文件。')
+        const validateRows = (rows, name, required = false) => {
+          if (!Array.isArray(rows)) {
+            if (required) throw new Error(name + ' 数据结构无效。')
+            return []
+          }
+          const ids = new Set()
+          for (const row of rows) {
+            if (!row || typeof row.id !== 'string' || !row.id.trim() || ids.has(row.id)) throw new Error(name + ' 包含无效或重复的记录编号。')
+            ids.add(row.id)
+          }
+          return rows
+        }
+        const importedCustomers = validateRows(imported.customers, '客户', true)
+        for (const customer of importedCustomers) {
+          if (!customer.profile || typeof customer.profile !== 'object' || !Array.isArray(customer.events) || !Array.isArray(customer.commitments)) throw new Error('客户记录结构无效。')
+        }
+        const importedAudit = validateRows(imported.audit, '审计日志', true)
+        const importedLessons = validateRows(imported.salesLessons, '销售经验')
+        const importedFacts = validateRows(imported.destinationFacts, '目的地资料')
+        const importedSuppliers = validateRows(imported.suppliers, '供应商')
+        const importedAttributions = validateRows(imported.adAttributions, '广告归因')
+        if (imported.companyProfile !== undefined && (!imported.companyProfile || typeof imported.companyProfile !== 'object' || Array.isArray(imported.companyProfile))) throw new Error('公司资料结构无效。')
         const current = await load()
         let snapshotId = null
         try {
@@ -322,28 +344,30 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         if (mode === 'replace') {
           next = {
             schemaVersion: 3,
-            customers: imported.customers,
-            audit: imported.audit,
-            salesLessons: Array.isArray(imported.salesLessons) ? imported.salesLessons : [],
-            destinationFacts: Array.isArray(imported.destinationFacts) ? imported.destinationFacts : [],
-            suppliers: Array.isArray(imported.suppliers) ? imported.suppliers : [],
+            customers: importedCustomers,
+            audit: importedAudit,
+            salesLessons: importedLessons,
+            destinationFacts: importedFacts,
+            suppliers: importedSuppliers,
             companyProfile: imported.companyProfile || {},
-            adAttributions: Array.isArray(imported.adAttributions) ? imported.adAttributions : []
+            adAttributions: importedAttributions
           }
         } else {
           const mergeById = (left, right) => {
             const seen = new Set(left.map(item => item.id))
-            return [...left, ...right.filter(item => !seen.has(item.id))]
+            const additions = []
+            for (const item of right) if (!seen.has(item.id)) { seen.add(item.id); additions.push(item) }
+            return [...left, ...additions]
           }
           next = {
             ...current,
-            customers: mergeById(current.customers, imported.customers),
-            audit: mergeById(current.audit, imported.audit),
-            salesLessons: mergeById(current.salesLessons, imported.salesLessons || []),
-            destinationFacts: mergeById(current.destinationFacts, imported.destinationFacts || []),
-            suppliers: mergeById(current.suppliers, imported.suppliers || []),
+            customers: mergeById(current.customers, importedCustomers),
+            audit: mergeById(current.audit, importedAudit),
+            salesLessons: mergeById(current.salesLessons, importedLessons),
+            destinationFacts: mergeById(current.destinationFacts, importedFacts),
+            suppliers: mergeById(current.suppliers, importedSuppliers),
             companyProfile: { ...(imported.companyProfile || {}), ...current.companyProfile },
-            adAttributions: mergeById(current.adAttributions, imported.adAttributions || [])
+            adAttributions: mergeById(current.adAttributions, importedAttributions)
           }
         }
         next.audit.push({ id: randomUUID(), action: 'plaintext_data_imported_' + mode, at: clock().toISOString() })
