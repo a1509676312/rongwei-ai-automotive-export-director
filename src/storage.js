@@ -128,16 +128,31 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
           db.customers.push(customer)
         }
         const profileFields = ['customer_name', 'company_name', 'phone', 'whatsapp', 'email', 'country', 'city', 'vehicle_interest', 'quantity', 'budget', 'source', 'ad_platform', 'ad_source', 'ad_campaign', 'ad_id', 'ad_content']
+        const identityFields = new Set(['customer_name', 'company_name', 'phone', 'whatsapp', 'email'])
+        const profileConflicts = []
         for (const key of profileFields) {
-          if (typeof input[key] === 'string' && input[key].trim()) customer.profile[key] = input[key].trim()
-          else if (typeof input[key] === 'number' && Number.isFinite(input[key])) customer.profile[key] = input[key]
+          const incoming = typeof input[key] === 'string' ? input[key].trim() : input[key]
+          if (incoming === undefined || incoming === null || incoming === '') continue
+          const existing = customer.profile[key]
+          if (identityFields.has(key) && existing && String(existing).trim()) {
+            const same = ['phone', 'whatsapp', 'email'].includes(key)
+              ? normalizeContact(key, existing) === normalizeContact(key, incoming)
+              : String(existing).normalize('NFKC').trim().toLocaleLowerCase() === String(incoming).normalize('NFKC').trim().toLocaleLowerCase()
+            if (!same) {
+              profileConflicts.push({ field: key, existing_value: existing, incoming_value: incoming })
+              continue
+            }
+            continue
+          }
+          if (typeof incoming === 'string' && incoming) customer.profile[key] = incoming
+          else if (typeof incoming === 'number' && Number.isFinite(incoming)) customer.profile[key] = incoming
         }
         customer.events.push({ id: randomUUID(), type: 'customer_submitted_content', at: now, source: input.source || 'user_submitted', rawText: input.conversation_text.trim(), attachment_metadata: input.attachment_metadata || null, ad_attribution: { platform: input.ad_platform || null, source: input.ad_source || null, campaign: input.ad_campaign || null, ad_id: input.ad_id || null, content: input.ad_content || null } })
         if (input.ad_platform || input.ad_source || input.ad_campaign || input.ad_id) db.adAttributions.push({ id: randomUUID(), customer_id: id, at: now, platform: input.ad_platform || null, source: input.ad_source || null, campaign: input.ad_campaign || null, ad_id: input.ad_id || null, content: input.ad_content || null })
         customer.updatedAt = now
         db.audit.push({ id: randomUUID(), customerId: id, action: created ? 'customer_created' : 'customer_content_added', at: now })
         await save(db)
-        return { customer_id: id, status: created ? 'created' : 'updated', matched_by_contact: matchedByContact, customer: structuredClone(customer) }
+        return { customer_id: id, status: created ? 'created' : 'updated', matched_by_contact: matchedByContact, profile_conflicts: profileConflicts, customer: structuredClone(customer) }
       })
     },
     async search(query = '', limit = 20, historyLimit = 10) {
