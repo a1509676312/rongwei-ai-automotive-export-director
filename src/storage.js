@@ -191,6 +191,23 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         return { customer_id: customer.id, followup_id: event.id, commitments_added: (input.commitments || []).length, next_followup_at: event.next_followup_at }
       })
     },
+    async updateCommitment(input) {
+      return serialized(async () => {
+        const db = await load()
+        const customer = db.customers.find(item => item.id === input.customer_id)
+        if (!customer) throw new Error('未找到该客户。')
+        const commitment = customer.commitments.find(item => item.id === input.commitment_id)
+        if (!commitment) throw new Error('未找到该承诺事项。')
+        if (!['open', 'completed', 'cancelled'].includes(input.status)) throw new Error('承诺状态只能是 open/completed/cancelled。')
+        commitment.status = input.status
+        commitment.updated_at = clock().toISOString()
+        if (input.note) commitment.update_note = input.note
+        customer.updatedAt = commitment.updated_at
+        db.audit.push({ id: randomUUID(), customerId: customer.id, action: 'commitment_status_updated', at: commitment.updated_at })
+        await save(db)
+        return { customer_id: customer.id, commitment_id: commitment.id, status: commitment.status }
+      })
+    },
     async recordSalesLesson(input) {
       return serialized(async () => {
         const db = await load()
@@ -269,7 +286,7 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         const exportId = `rongwei-data-export-${stamp}-${randomUUID().slice(0, 8)}.json`
         const target = path.join(exportDirectory, exportId)
         const payload = { exported_at: clock().toISOString(), format: 'rongwei-plaintext-export-v1', warning: '此文件包含可读客户个人信息和业务数据，请加密传输并妥善保管。', data: db }
-        await writeFile(target, JSON.stringify(payload, null, 2) + '\\n', { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+        await writeFile(target, JSON.stringify(payload, null, 2) + '\n', { encoding: 'utf8', flag: 'wx', mode: 0o600 })
         await chmod(target, 0o600).catch(() => {})
         return { export_id: exportId, path: target, encrypted: false, customer_count: db.customers.length, supplier_count: db.suppliers.length, warning: '明文导出包含敏感客户数据；请妥善保管，不要上传公共仓库或发送给无关人员。' }
       })
