@@ -15,7 +15,7 @@ export function validateFollowup(input) {
   if (typeof input.summary !== 'string' || !input.summary.trim()) throw new Error('必须填写本次跟进摘要。')
   if (input.intent_level && !INTENT_LEVELS.includes(input.intent_level)) throw new Error('意向等级只能为 S/A/B/C/D。')
   if (input.purchase_power && !PURCHASE_POWER_LEVELS.includes(input.purchase_power)) throw new Error('购买力只能为 confirmed/likely/unclear/low。')
-  if (input.next_followup_at && !/^\\d{4}-\\d{2}-\\d{2}(T.*)?$/.test(input.next_followup_at)) throw new Error('下次跟进时间必须使用 ISO 日期或日期时间。')
+  if (input.next_followup_at && !/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(input.next_followup_at)) throw new Error('下次跟进时间必须使用 ISO 日期或日期时间。')
   const commitments = input.commitments || []
   if (!Array.isArray(commitments) || commitments.length > 20) throw new Error('承诺事项最多 20 条。')
   for (const item of commitments) {
