@@ -49,6 +49,31 @@ test('followup stores customer, company and mutual commitments separately', asyn
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+test('encrypted backup restores safely and snapshots the current database first', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
+  try {
+    const store = makeStore({ directory })
+    await store.capture({ conversation_text: 'first customer' })
+    const backup = await store.createBackup()
+    await store.capture({ conversation_text: 'second customer' })
+    const restored = await store.restoreBackup(backup.backup_id)
+    assert.equal(restored.restored_customer_count, 1)
+    assert.ok(restored.safety_snapshot_id)
+    assert.equal((await store.search('second customer')).length, 0)
+    const backups = await store.listBackups()
+    assert.ok(backups.some(item => item.backup_id === backup.backup_id))
+    assert.ok(backups.some(item => item.backup_id === restored.safety_snapshot_id))
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('backup restore rejects path traversal identifiers', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
+  try {
+    const store = makeStore({ directory })
+    await assert.rejects(() => store.restoreBackup('../customers.json'), /无效/)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test('wrong encryption key cannot read the customer database', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
   try {
