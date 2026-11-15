@@ -1,0 +1,15 @@
+{
+  "name": "@rongwei-ai/automotive-export-director",
+  "version": "0.1.0",
+  "description": "Rongwei AI 汽车出口销售总监：DeepSeek Harness 原生插件（本地客户记忆核心）",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": "./src/index.js",
+  "files": ["src", "cordis.patch.yml", "README.md", "LICENSE"],
+  "engines": { "node": ">=24.9.0", "dsh": ">=0.2.2-rc.2" },
+  "peerDependencies": { "@deepseek-ai/dsh-tools": ">=0.2.2-rc.2" },
+  "devDependencies": { "@deepseek-ai/dsh-tools": "0.2.2-rc.2" },
+  "scripts": { "test": "node --test", "check": "node --check src/index.js && node --check src/storage.js && node --check src/domain.js" },
+  "license": "MIT",
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}
