@@ -71,6 +71,7 @@ export function validateSalesLesson(input) {
   if (typeof input.lesson !== 'string' || !input.lesson.trim()) throw new Error('必须填写总结出的经验。')
   if (!['won', 'lost', 'pending', 'unknown'].includes(input.outcome || 'unknown')) throw new Error('经验结果只能是 won/lost/pending/unknown。')
   if (!['single_case', 'repeated', 'verified'].includes(input.confidence || 'single_case')) throw new Error('经验可信级别只能是 single_case/repeated/verified。')
+  if (['repeated', 'verified'].includes(input.confidence) && (typeof input.evidence !== 'string' || input.evidence.trim().length < 5)) throw new Error('重复规律或已验证经验必须提供至少 5 个字符的去标识化结果证据。')
   return { ...input, situation: input.situation.trim(), lesson: input.lesson.trim() }
 }
 
