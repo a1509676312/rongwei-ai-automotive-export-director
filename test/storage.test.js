@@ -17,10 +17,36 @@ test('capture creates a local encrypted customer and preserves raw source events
     assert.equal(created.customer.events[0].rawText, '客户询问出口到肯尼亚')
     const found = await store.search('Kenya')
     assert.equal(found.length, 1)
+    assert.equal(found[0].history[0].raw_text, '客户询问出口到肯尼亚')
     const saved = JSON.parse(await readFile(store.file, 'utf8'))
     assert.equal(saved.format, 'rongwei-aes-256-gcm-v1')
     assert.equal(JSON.stringify(saved).includes('客户询问出口到肯尼亚'), false)
     assert.equal((await stat(store.file)).mode & 0o777, 0o600)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('exact contact match updates existing customer instead of creating duplicate', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
+  try {
+    const store = makeStore({ directory })
+    const first = await store.capture({ conversation_text: 'first message', customer_name: 'Buyer A', phone: '+254 700-123-456', country: 'Kenya' })
+    const second = await store.capture({ conversation_text: 'second message', phone: '+254700123456', customer_name: 'Buyer A' })
+    assert.equal(second.status, 'updated')
+    assert.equal(second.matched_by_contact, true)
+    assert.equal(second.customer_id, first.customer_id)
+    assert.equal((await store.exportAll()).customers.length, 1)
+    assert.equal((await store.search('Buyer A'))[0].history.length, 2)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('multiple contact matches are rejected instead of guessing customer identity', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
+  try {
+    const store = makeStore({ directory })
+    await store.capture({ conversation_text: 'first', phone: '10001' })
+    await store.capture({ conversation_text: 'second', phone: '10002' })
+    await assert.rejects(() => store.capture({ conversation_text: 'ambiguous', phone: '10001', whatsapp: '10002' }), /多个客户/)
+    assert.equal((await store.exportAll()).customers.length, 2)
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
@@ -38,7 +64,7 @@ test('followup stores customer, company and mutual commitments separately', asyn
   try {
     const store = makeStore({ directory })
     const customer = await store.capture({ conversation_text: 'first message' })
-    const result = await store.followup({ customer_id: customer.customer_id, summary: 'Sent vehicle details', commitments: [
+    const result = await store.followup({ customer_id: customer.customer_id, summary: 'Sent vehicle details', evidence: '客户确认收到车型资料', intent_level: 'B', commitments: [
       { category: 'customer', description: 'Confirm quantity' },
       { category: 'company', description: 'Send inspection video' },
       { category: 'mutual', description: 'Review shipping options' }
@@ -46,6 +72,9 @@ test('followup stores customer, company and mutual commitments separately', asyn
     assert.equal(result.commitments_added, 3)
     const exported = await store.exportAll()
     assert.deepEqual(exported.customers[0].commitments.map(x => x.category), ['customer', 'company', 'mutual'])
+    const history = await store.search(customer.customer_id)
+    assert.equal(history[0].history.length, 2)
+    assert.equal(history[0].history[1].evidence, '客户确认收到车型资料')
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
