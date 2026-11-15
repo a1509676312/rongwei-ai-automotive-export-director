@@ -321,6 +321,21 @@ export function apply(ctx) {
   }))
 
   ctx.tools.register(defineTool({
+    name: 'rongwei_data_import',
+    description: '仅在用户明确要求从 Rongwei JSON 导出文件导入数据并确认后调用。文件必须先放入本机 ~/.rongwei-ai/exports；导入前自动创建当前数据库加密快照。merge 保留本机已有记录，replace 用导入内容替换当前数据。',
+    parameters: {
+      export_id: { type: 'string', required: true, description: '导出文件名，不含路径；从 exports 文件夹选择' },
+      mode: { type: 'string', required: true, description: 'merge 或 replace' },
+      confirm_import: { type: 'boolean', required: true, description: '用户已明确确认导入并理解 replace 会替换当前数据时传 true' }
+    },
+    output: stringOutput,
+    async execute(args) {
+      if (args.confirm_import !== true) throw new Error('必须先取得用户对本地数据导入的明确确认。')
+      return JSON.stringify(await store.importPlainJson(args.export_id, args.mode))
+    }
+  }))
+
+  ctx.tools.register(defineTool({
     name: 'rongwei_data_export',
     description: '仅在用户明确要求导出/迁移数据时调用。生成包含可读客户个人信息、跟进、供应商、公司资料和知识记录的 JSON 文件；必须在调用前告知用户这是明文敏感数据文件。',
     parameters: { confirm_plaintext_export: { type: 'boolean', required: true, description: '用户已明确确认需要生成明文数据导出文件时传 true' } },
