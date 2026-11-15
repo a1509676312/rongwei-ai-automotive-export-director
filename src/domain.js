@@ -69,17 +69,47 @@ function fromMinorUnits(value, digits) {
   return digits ? whole.toString() + '.' + fraction : whole.toString()
 }
 
+function convertToSettlement(value, sourceCurrency, targetCurrency, rates, field, targetDigits) {
+  if (!/^[A-Z]{3}$/.test(sourceCurrency)) throw new Error(field + ' 的成本币种必须是三位大写货币代码。')
+  const sourceDigits = currencyDigits(sourceCurrency)
+  const sourceMinor = toMinorUnits(value, sourceDigits, field)
+  if (sourceCurrency === targetCurrency) return sourceMinor
+  const rate = rates[sourceCurrency]
+  if (!Number.isFinite(rate) || rate <= 0) throw new Error('缺少 ' + sourceCurrency + ' 到 ' + targetCurrency + ' 的用户提供汇率；不得自动估算。')
+  const rateScaled = toMinorUnits(rate, 8, sourceCurrency + ' 汇率')
+  const numerator = sourceMinor * rateScaled * (10n ** BigInt(targetDigits))
+  const denominator = (10n ** 8n) * (10n ** BigInt(sourceDigits))
+  return (numerator + denominator / 2n) / denominator
+}
+
 export function calculateQuote(input) {
   if (!input || !['FOB', 'CIF', 'CIP'].includes(input.incoterm)) throw new Error('贸易术语仅支持 FOB/CIF/CIP（Incoterms 2020）。')
-  if (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency)) throw new Error('必须提供三位大写货币代码，例如 USD。')
+  if (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency)) throw new Error('必须提供三位大写结算货币代码，例如 USD。')
   if (['FOB', 'CIF'].includes(input.incoterm) && input.transport_mode && !['sea', 'inland_waterway'].includes(input.transport_mode)) throw new Error('FOB/CIF 仅适用于海运或内河水运；其他运输方式请评估 FCA/CPT/CIP。')
   const digits = currencyDigits(input.currency)
-  const required = ['vehicle_cost', 'sale_price']
   const fields = ['vehicle_cost', 'sale_price', 'origin_inland', 'export_clearance', 'loading', 'inspection', 'bank_fee', 'commission', 'other_seller_costs', 'freight', 'insurance']
+  let rates = {}
+  if (input.exchange_rates_json) {
+    try { rates = JSON.parse(input.exchange_rates_json) }
+    catch { throw new Error('exchange_rates_json 不是有效 JSON。') }
+    if (!rates || typeof rates !== 'object' || Array.isArray(rates)) throw new Error('汇率必须是币种到结算货币的 JSON 对象。')
+  }
   const amounts = {}
+  const fxCurrencies = new Set()
   for (const field of fields) {
-    if (required.includes(field) || input[field] !== undefined) amounts[field] = toMinorUnits(input[field] ?? 0, digits, field)
-    else amounts[field] = 0n
+    if (field !== 'vehicle_cost' && field !== 'sale_price' && input[field] === undefined) {
+      amounts[field] = 0n
+      continue
+    }
+    const sourceCurrency = field === 'sale_price' ? input.currency : (input[field + '_currency'] || input.currency)
+    if (sourceCurrency !== input.currency) fxCurrencies.add(sourceCurrency)
+    amounts[field] = convertToSettlement(input[field] ?? 0, sourceCurrency, input.currency, rates, field, digits)
+  }
+  if (fxCurrencies.size) {
+    if (!input.fx_source || !input.fx_as_of || !input.fx_valid_until || !validFollowupDate(input.fx_as_of) || !validFollowupDate(input.fx_valid_until)) throw new Error('使用跨币种换算时，必须提供汇率来源、日期和有效期。')
+    if (input.fx_valid_until.slice(0, 10) < new Date().toISOString().slice(0, 10)) throw new Error('汇率已过有效期；请提供新的真实汇率后再计算。')
+    if (input.fx_as_of.slice(0, 10) > input.fx_valid_until.slice(0, 10)) throw new Error('汇率日期不能晚于汇率有效期。')
+    for (const code of fxCurrencies) if (!Number.isFinite(rates[code]) || rates[code] <= 0) throw new Error('缺少 ' + code + ' 到 ' + input.currency + ' 的有效汇率。')
   }
   if (['CIF', 'CIP'].includes(input.incoterm) && (input.freight === undefined || input.insurance === undefined)) throw new Error('CIF/CIP 计算必须提供实际运输费用和保险费用；不得自动估算。')
   const sellerCostKeys = ['vehicle_cost', 'origin_inland', 'export_clearance', 'loading', 'inspection', 'bank_fee', 'commission', 'other_seller_costs']
@@ -108,6 +138,7 @@ export function calculateQuote(input) {
   }
   if (margin !== null && margin < minimum) warnings.push('当前毛利率低于设定的最低利润率门槛。')
   if (input.incoterm === 'FOB' && (amounts.freight > 0n || amounts.insurance > 0n)) warnings.push('已输入的海运费/保险费未计入 FOB 卖方成本；请确认它们是否应作为买方承担费用或另行列示。')
+  if (fxCurrencies.size) warnings.push('本次跨币种金额已按用户提供的汇率换算；请复核来源、日期和有效期。')
   const costBreakdown = Object.fromEntries(fields.filter(key => key !== 'sale_price').map(key => [key, fromMinorUnits(amounts[key], digits)]))
   return {
     incoterm: input.incoterm, incoterms_version: '2020', currency: input.currency, currency_minor_digits: digits,
@@ -116,6 +147,7 @@ export function calculateQuote(input) {
     gross_margin_percent: margin, minimum_margin_percent: minimum,
     meets_minimum_margin: margin !== null && margin >= minimum,
     insurance_clause: input.insurance_clause || null, insurance_coverage_percent: input.insurance_coverage_percent ?? null,
+    fx: fxCurrencies.size ? { source: input.fx_source, as_of: input.fx_as_of, valid_until: input.fx_valid_until, rates_to_settlement_currency: Object.fromEntries([...fxCurrencies].map(code => [code, rates[code]])) } : null,
     warnings, customer_quote_generated: false
   }
 }
