@@ -38,8 +38,9 @@ function decryptDatabase(envelope, keyText) {
   }
 }
 
-function normalizeContact(value) {
-  return String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/[\s()+.\-]/g, '')
+function normalizeContact(field, value) {
+  const normalized = String(value || '').normalize('NFKC').trim().toLocaleLowerCase()
+  return field === 'email' ? normalized : normalized.replace(/[^\p{L}\p{N}]/gu, '')
 }
 
 function findContactMatches(customers, input) {
