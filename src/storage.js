@@ -295,6 +295,61 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         return { export_id: exportId, path: target, encrypted: false, customer_count: db.customers.length, supplier_count: db.suppliers.length, warning: '明文导出包含敏感客户数据；请妥善保管，不要上传公共仓库或发送给无关人员。' }
       })
     },
+    async importPlainJson(exportId, mode = 'merge') {
+      return serialized(async () => {
+        if (typeof exportId !== 'string' || path.basename(exportId) !== exportId || !/^rongwei-data-export-[0-9TZ]+-[a-f0-9]{8}[.]json$/.test(exportId)) throw new Error('导入文件编号无效。')
+        if (!['merge', 'replace'].includes(mode)) throw new Error('导入模式只能是 merge 或 replace。')
+        const source = path.join(directory, 'exports', exportId)
+        const info = await stat(source)
+        if (!info.isFile() || info.size > 50 * 1024 * 1024) throw new Error('导入文件不存在或超过 50 MiB 限制。')
+        const payload = JSON.parse(await readFile(source, 'utf8'))
+        const imported = payload?.data
+        if (payload?.format !== 'rongwei-plaintext-export-v1' || !imported || !Array.isArray(imported.customers) || !Array.isArray(imported.audit)) throw new Error('文件不是有效的 Rongwei JSON 导出文件。')
+        const current = await load()
+        let snapshotId = null
+        try {
+          const currentBytes = await readFile(file)
+          await mkdir(backupDirectory, { recursive: true, mode: 0o700 })
+          await chmod(backupDirectory, 0o700).catch(() => {})
+          const stamp = clock().toISOString().replace(/[-:.]/g, '')
+          snapshotId = `customers-${stamp}-${randomUUID().slice(0, 8)}.rwbackup`
+          const snapshotPath = path.join(backupDirectory, snapshotId)
+          await writeFile(snapshotPath, currentBytes, { flag: 'wx', mode: 0o600 })
+          await chmod(snapshotPath, 0o600).catch(() => {})
+        } catch (error) { if (error.code !== 'ENOENT') throw error }
+        let next
+        if (mode === 'replace') {
+          next = {
+            schemaVersion: 3,
+            customers: imported.customers,
+            audit: imported.audit,
+            salesLessons: Array.isArray(imported.salesLessons) ? imported.salesLessons : [],
+            destinationFacts: Array.isArray(imported.destinationFacts) ? imported.destinationFacts : [],
+            suppliers: Array.isArray(imported.suppliers) ? imported.suppliers : [],
+            companyProfile: imported.companyProfile || {},
+            adAttributions: Array.isArray(imported.adAttributions) ? imported.adAttributions : []
+          }
+        } else {
+          const mergeById = (left, right) => {
+            const seen = new Set(left.map(item => item.id))
+            return [...left, ...right.filter(item => !seen.has(item.id))]
+          }
+          next = {
+            ...current,
+            customers: mergeById(current.customers, imported.customers),
+            audit: mergeById(current.audit, imported.audit),
+            salesLessons: mergeById(current.salesLessons, imported.salesLessons || []),
+            destinationFacts: mergeById(current.destinationFacts, imported.destinationFacts || []),
+            suppliers: mergeById(current.suppliers, imported.suppliers || []),
+            companyProfile: { ...(imported.companyProfile || {}), ...current.companyProfile },
+            adAttributions: mergeById(current.adAttributions, imported.adAttributions || [])
+          }
+        }
+        next.audit.push({ id: randomUUID(), action: 'plaintext_data_imported_' + mode, at: clock().toISOString() })
+        await save(next)
+        return { mode, imported_customer_count: imported.customers.length, final_customer_count: next.customers.length, safety_snapshot_id: snapshotId }
+      })
+    },
     async exportAll() { return load() },
     async createBackup() {
       return serialized(async () => {
