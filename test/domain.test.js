@@ -19,6 +19,8 @@ test('followup keeps intent and purchasing power as separate validated fields', 
   assert.throws(() => validateFollowup({ customer_id: 'c1', summary: 'call', intent_level: 'A', purchase_power: 'likely', intent_evidence: 'Customer asked for five units' }), /购买力证据/)
   assert.equal(validateFollowup({ customer_id: 'c1', summary: 'call', intent_level: 'A', purchase_power: 'unclear', intent_evidence: '客户确认先采购5台', purchase_power_evidence: '客户明确表示已有采购预算' }).intent_level, 'A')
   assert.equal(validateFollowup({ customer_id: 'c1', summary: 'call' }).purchase_power, undefined)
+  assert.throws(() => validateFollowup({ customer_id: 'c1', summary: 'call', next_followup_at: '2026-02-31' }), /有效的 ISO 日期/)
+  assert.equal(validateFollowup({ customer_id: 'c1', summary: 'call', next_followup_at: '2026-11-20' }).next_followup_at, '2026-11-20')
 })
 
 test('followup rejects invalid commitment categories', () => {
