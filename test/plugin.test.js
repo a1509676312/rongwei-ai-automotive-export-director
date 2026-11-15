@@ -21,7 +21,7 @@ test('Harness plugin registers customer, backup tools, sales guidance and local 
         async set(ref, value) { credentialsStore.set(ref, value) }
       }
     })
-    assert.deepEqual([...tools.keys()].sort(), ['rongwei_ad_attribution_summary', 'rongwei_backup_create', 'rongwei_backup_list', 'rongwei_backup_restore', 'rongwei_commitment_update', 'rongwei_company_profile_set', 'rongwei_customer_capture', 'rongwei_customer_search', 'rongwei_data_export', 'rongwei_destination_fact_add', 'rongwei_destination_fact_search', 'rongwei_quote_calculate', 'rongwei_record_followup', 'rongwei_sales_lesson_add', 'rongwei_sales_lesson_search', 'rongwei_supplier_save', 'rongwei_supplier_search'])
+    assert.deepEqual([...tools.keys()].sort(), ['rongwei_ad_attribution_summary', 'rongwei_attachment_capture', 'rongwei_backup_create', 'rongwei_backup_list', 'rongwei_backup_restore', 'rongwei_commitment_update', 'rongwei_company_profile_set', 'rongwei_customer_capture', 'rongwei_customer_search', 'rongwei_data_export', 'rongwei_destination_fact_add', 'rongwei_destination_fact_search', 'rongwei_quote_calculate', 'rongwei_record_followup', 'rongwei_sales_lesson_add', 'rongwei_sales_lesson_search', 'rongwei_supplier_save', 'rongwei_supplier_search'])
     assert.equal(sections.length, 1)
     assert.match(sections[0].text, /至少三种不同策略/)
     assert.match(sections[0].text, /绝不自动发送/)
@@ -51,6 +51,9 @@ test('Harness plugin registers customer, backup tools, sales guidance and local 
     assert.equal(captured.event_count, 1)
     assert.equal(credentialsStore.size, 1)
     assert.equal(JSON.parse(await tools.get('rongwei_ad_attribution_summary').execute({})).attribution[0].customer_count, 1)
+    const attachment = JSON.parse(await tools.get('rongwei_attachment_capture').execute({ conversation_text: 'Vehicle registration shows Toyota RAV4 Hybrid', document_name: 'registration.pdf', mime_type: 'application/pdf', extraction_method: 'document_text_layer', confidence: 0.96, customer_id: captured.customer_id }))
+    assert.equal(attachment.attachment.document_name, 'registration.pdf')
+    await assert.rejects(() => tools.get('rongwei_attachment_capture').execute({ conversation_text: 'unknown', document_name: 'scan.pdf', extraction_method: 'model_ocr', confidence: 2 }), /confidence/)
     const duplicate = JSON.parse(await tools.get('rongwei_customer_capture').execute({ conversation_text: 'Customer sent new details', phone: '+254700123456' }))
     assert.equal(duplicate.status, 'updated')
     assert.equal(duplicate.customer_id, captured.customer_id)
@@ -66,7 +69,7 @@ test('Harness plugin registers customer, backup tools, sales guidance and local 
     const found = JSON.parse(await tools.get('rongwei_customer_search').execute({ query: 'Kenya' }))
     assert.equal(found.count, 1)
     assert.equal(found.customers[0].event_count, 3)
-    assert.equal(found.customers[0].history.length, 3)
+    assert.equal(found.customers[0].history.length, 4)
   } finally {
     if (previous === undefined) delete process.env.RONGWEI_DATA_DIR
     else process.env.RONGWEI_DATA_DIR = previous
