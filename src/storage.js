@@ -132,7 +132,7 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
           if (typeof input[key] === 'string' && input[key].trim()) customer.profile[key] = input[key].trim()
           else if (typeof input[key] === 'number' && Number.isFinite(input[key])) customer.profile[key] = input[key]
         }
-        customer.events.push({ id: randomUUID(), type: 'customer_submitted_content', at: now, source: input.source || 'user_submitted', rawText: input.conversation_text.trim(), ad_attribution: { platform: input.ad_platform || null, source: input.ad_source || null, campaign: input.ad_campaign || null, ad_id: input.ad_id || null, content: input.ad_content || null } })
+        customer.events.push({ id: randomUUID(), type: 'customer_submitted_content', at: now, source: input.source || 'user_submitted', rawText: input.conversation_text.trim(), attachment_metadata: input.attachment_metadata || null, ad_attribution: { platform: input.ad_platform || null, source: input.ad_source || null, campaign: input.ad_campaign || null, ad_id: input.ad_id || null, content: input.ad_content || null } })
         if (input.ad_platform || input.ad_source || input.ad_campaign || input.ad_id) db.adAttributions.push({ id: randomUUID(), customer_id: id, at: now, platform: input.ad_platform || null, source: input.ad_source || null, campaign: input.ad_campaign || null, ad_id: input.ad_id || null, content: input.ad_content || null })
         customer.updatedAt = now
         db.audit.push({ id: randomUUID(), customerId: id, action: created ? 'customer_created' : 'customer_content_added', at: now })
@@ -264,7 +264,7 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
       const db = await load()
       const q = String(query).trim().toLocaleLowerCase()
       const rows = db.suppliers.filter(item => !q || [item.name, item.country, item.vehicle_model, item.notes].join(' ').toLocaleLowerCase().includes(q))
-      return rows.slice(-Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 50))).reverse()
+      return rows.slice(-Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 50))).reverse().map(item => ({ ...item, cost_status: item.cost_valid_until && item.cost_valid_until < clock().toISOString().slice(0, 10) ? 'expired' : 'valid_or_unspecified' }))
     },
     async adAttributionSummary() {
       const db = await load()
