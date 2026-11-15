@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, chmod, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, chmod, writeFile, copyFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto'
@@ -40,6 +40,7 @@ function decryptDatabase(envelope, keyText) {
 
 export function createStore({ directory = dataDirectory(), clock = () => new Date(), keyProvider } = {}) {
   const file = path.join(directory, 'customers.json')
+  const backupDirectory = path.join(directory, 'backups')
   let queue = Promise.resolve()
 
   async function load() {
@@ -145,6 +146,58 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
     },
     async exportAll() {
       return load()
+    },
+    async createBackup() {
+      return serialized(async () => {
+        await load()
+        let current
+        try { current = await readFile(file) }
+        catch (error) { if (error.code === 'ENOENT') throw new Error('当前还没有客户数据，无需备份。'); throw error }
+        await mkdir(backupDirectory, { recursive: true, mode: 0o700 })
+        await chmod(backupDirectory, 0o700).catch(() => {})
+        const stamp = clock().toISOString().replace(/[-:.]/g, '')
+        const backupId = `customers-${stamp}-${randomUUID().slice(0, 8)}.rwbackup`
+        const target = path.join(backupDirectory, backupId)
+        await writeFile(target, current, { flag: 'wx', mode: 0o600 })
+        await chmod(target, 0o600).catch(() => {})
+        return { backup_id: backupId, path: target, encrypted: true }
+      })
+    },
+    async listBackups(limit = 20) {
+      await mkdir(backupDirectory, { recursive: true, mode: 0o700 })
+      const names = await readdir(backupDirectory)
+      const items = []
+      for (const name of names) {
+        if (!/^customers-[0-9TZ]+-[a-f0-9]{8}[.]rwbackup$/.test(name)) continue
+        const target = path.join(backupDirectory, name)
+        const info = await stat(target)
+        if (info.isFile()) items.push({ backup_id: name, size_bytes: info.size, modified_at: info.mtime.toISOString(), encrypted: true })
+      }
+      items.sort((a, b) => b.modified_at.localeCompare(a.modified_at))
+      return items.slice(0, Math.max(1, Math.min(50, Number.isInteger(limit) ? limit : 20)))
+    },
+    async restoreBackup(backupId) {
+      return serialized(async () => {
+        if (typeof backupId !== 'string' || path.basename(backupId) !== backupId || !/^customers-[0-9TZ]+-[a-f0-9]{8}[.]rwbackup$/.test(backupId)) throw new Error('备份文件编号无效。')
+        const source = path.join(backupDirectory, backupId)
+        const backupBytes = await readFile(source)
+        const envelope = JSON.parse(backupBytes.toString('utf8'))
+        decryptDatabase(envelope, await keyProvider())
+        let snapshotId = null
+        try {
+          const current = await readFile(file)
+          await mkdir(backupDirectory, { recursive: true, mode: 0o700 })
+          const stamp = clock().toISOString().replace(/[-:.]/g, '')
+          snapshotId = `customers-${stamp}-${randomUUID().slice(0, 8)}.rwbackup`
+          await writeFile(path.join(backupDirectory, snapshotId), current, { flag: 'wx', mode: 0o600 })
+        } catch (error) { if (error.code !== 'ENOENT') throw error }
+        const temp = `${file}.${randomUUID()}.restore.tmp`
+        await writeFile(temp, backupBytes, { flag: 'wx', mode: 0o600 })
+        await rename(temp, file)
+        await chmod(file, 0o600).catch(() => {})
+        const restored = decryptDatabase(envelope, await keyProvider())
+        return { restored_customer_count: restored.customers.length, safety_snapshot_id: snapshotId }
+      })
     }
   }
 }
