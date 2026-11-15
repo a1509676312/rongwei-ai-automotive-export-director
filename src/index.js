@@ -265,7 +265,7 @@ export function apply(ctx) {
       if (!args.name?.trim()) throw new Error('必须填写供应商名称。')
       if (args.vehicle_cost !== undefined && (!Number.isFinite(args.vehicle_cost) || args.vehicle_cost < 0)) throw new Error('供应商成本必须是大于或等于 0 的数字。')
       if (args.currency && !/^[A-Z]{3}$/.test(args.currency)) throw new Error('币种必须是三位大写代码。')
-      if (args.cost_valid_until && !/^\\d{4}-\\d{2}-\\d{2}$/.test(args.cost_valid_until)) throw new Error('成本有效期必须使用 YYYY-MM-DD。')
+      if (args.cost_valid_until && !/^\d{4}-\d{2}-\d{2}$/.test(args.cost_valid_until)) throw new Error('成本有效期必须使用 YYYY-MM-DD。')
       return JSON.stringify(await store.saveSupplier(args))
     }
   }))
