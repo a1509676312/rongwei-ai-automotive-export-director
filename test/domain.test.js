@@ -42,6 +42,7 @@ test('sales lesson and destination fact validation keeps confidence and evidence
   const { validateSalesLesson, validateDestinationFact } = await import('../src/domain.js')
   assert.equal(validateSalesLesson({ situation: 'Customer delayed decision', lesson: 'Ask for exact decision date' }).confidence, undefined)
   assert.throws(() => validateSalesLesson({ situation: 's', lesson: 'l', outcome: 'guaranteed' }), /结果/)
+  assert.throws(() => validateSalesLesson({ situation: 's', lesson: 'l', confidence: 'verified' }), /证据/)
   assert.throws(() => validateDestinationFact({ country: 'Kenya', content: 'Port notes', evidence_status: 'verified' }), /来源/)
   assert.equal(validateDestinationFact({ country: 'Kenya', content: 'Port notes', evidence_status: 'historical' }).evidence_status, 'historical')
 })
