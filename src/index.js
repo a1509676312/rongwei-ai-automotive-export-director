@@ -2,7 +2,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { randomBytes } from 'node:crypto'
 import { createStore } from './storage.js'
-import { validateCapture, validateFollowup } from './domain.js'
+import { validateCapture, validateFollowup, calculateQuote } from './domain.js'
 
 export const name = 'rongwei-ai-automotive-export-director'
 export const inject = ['tools', 'systemPrompt', 'credentials']
@@ -114,6 +114,27 @@ export function apply(ctx) {
         .map(([category, description]) => ({ category, description }))
       const result = await store.followup(validateFollowup({ ...args, commitments }))
       return JSON.stringify(result)
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_quote_calculate',
+    description: '按 Incoterms 2020 对 FOB/CIF/CIP 进行内部成本、毛利和利润率计算。必须使用用户提供的实际成本和售价，不估价、不生成客户报价；缺少 CIF/CIP 运费或保险费时拒绝计算。',
+    parameters: {
+      incoterm: { type: 'string', required: true, description: 'FOB、CIF 或 CIP' },
+      currency: { type: 'string', required: true, description: '三位大写货币代码，例如 USD' },
+      vehicle_cost: { type: 'number', required: true, description: '车辆采购成本' },
+      sale_price: { type: 'number', required: true, description: '用户提供的内部销售价' },
+      origin_inland: { type: 'number', description: '起运地内陆运输费用' },
+      export_clearance: { type: 'number', description: '出口报关及相关费用' },
+      loading: { type: 'number', description: '装载及装船前费用' },
+      freight: { type: 'number', description: '实际国际运输费用；CIF/CIP 必填' },
+      insurance: { type: 'number', description: '实际保险费用；CIF/CIP 必填' },
+      minimum_margin_percent: { type: 'number', description: '公司最低毛利率门槛，百分比' }
+    },
+    output: stringOutput,
+    async execute(args) {
+      return JSON.stringify(calculateQuote(args))
     }
   }))
 
