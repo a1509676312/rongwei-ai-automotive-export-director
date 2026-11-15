@@ -114,7 +114,7 @@ export function validateSalesLesson(input) {
   if (!input || typeof input.situation !== 'string' || !input.situation.trim()) throw new Error('必须填写经验发生的销售情境。')
   if (typeof input.lesson !== 'string' || !input.lesson.trim()) throw new Error('必须填写总结出的经验。')
   const personalText = [input.situation, input.lesson, input.evidence || ''].join(' ')
-  if (/\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b/i.test(personalText) || /(?:\\+?\\d[\\d ()-]{7,}\\d)/.test(personalText)) throw new Error('销售经验中检测到疑似邮箱或电话号码；请先去标识化后再保存。')
+  if (/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(personalText) || /(?:\\+?\d[\d ()-]{7,}\d)/.test(personalText)) throw new Error('销售经验中检测到疑似邮箱或电话号码；请先去标识化后再保存。')
   if (!['won', 'lost', 'pending', 'unknown'].includes(input.outcome || 'unknown')) throw new Error('经验结果只能是 won/lost/pending/unknown。')
   if (!['single_case', 'repeated', 'verified'].includes(input.confidence || 'single_case')) throw new Error('经验可信级别只能是 single_case/repeated/verified。')
   if (['repeated', 'verified'].includes(input.confidence) && (typeof input.evidence !== 'string' || input.evidence.trim().length < 5)) throw new Error('重复规律或已验证经验必须提供至少 5 个字符的去标识化结果证据。')
