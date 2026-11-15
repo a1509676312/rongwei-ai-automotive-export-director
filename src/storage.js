@@ -33,7 +33,7 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
   async function save(db) {
     await mkdir(directory, { recursive: true, mode: 0o700 })
     const temp = `${file}.${randomUUID()}.tmp`
-    await writeFile(temp, `${JSON.stringify(db, null, 2)}\\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+    await writeFile(temp, `${JSON.stringify(db, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
     await chmod(temp, 0o600).catch(() => {})
     await rename(temp, file)
     await chmod(file, 0o600).catch(() => {})
