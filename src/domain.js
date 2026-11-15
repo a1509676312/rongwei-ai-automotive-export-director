@@ -124,6 +124,6 @@ export function validateDestinationFact(input) {
   if (typeof input.content !== 'string' || !input.content.trim()) throw new Error('目的地资料内容不能为空。')
   if (!['verified', 'historical', 'ai_estimate', 'expired'].includes(input.evidence_status)) throw new Error('资料状态只能是 verified/historical/ai_estimate/expired。')
   if (input.evidence_status === 'verified' && (!input.source || !String(input.source).trim())) throw new Error('标记为已核实的资料必须填写来源。')
-  if (input.expires_at && !/^\\d{4}-\\d{2}-\\d{2}$/.test(input.expires_at)) throw new Error('资料有效期必须使用 YYYY-MM-DD。')
+  if (input.expires_at && !/^\d{4}-\d{2}-\d{2}$/.test(input.expires_at)) throw new Error('资料有效期必须使用 YYYY-MM-DD。')
   return { ...input, country: input.country.trim(), content: input.content.trim() }
 }
