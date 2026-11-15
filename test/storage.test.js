@@ -158,6 +158,10 @@ test('plaintext export can be imported with merge and an encrypted pre-import sn
     const repeat = await target.importPlainJson(exported.export_id, 'merge')
     assert.equal(repeat.final_customer_count, 2)
     assert.equal((await target.search('Source Buyer')).length, 1)
+    const malformedId = 'rongwei-data-export-20261115T143000000Z-deadbeef.json'
+    const malformed = { format: 'rongwei-plaintext-export-v1', data: { customers: [{ id: 'duplicate', profile: {}, events: [], commitments: [] }, { id: 'duplicate', profile: {}, events: [], commitments: [] }], audit: [] } }
+    await writeFile(path.join(targetExports, malformedId), JSON.stringify(malformed), 'utf8')
+    await assert.rejects(() => target.importPlainJson(malformedId, 'merge'), /重复/)
   } finally {
     await rm(sourceDirectory, { recursive: true, force: true })
     await rm(targetDirectory, { recursive: true, force: true })
