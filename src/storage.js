@@ -160,6 +160,8 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
           type: event.type, at: event.at, summary: event.summary || null,
           raw_text: event.rawText ? event.rawText.slice(0, 4000) : null,
           customer_response: event.customer_response || null,
+          attachment_metadata: event.attachment_metadata || null,
+          ad_attribution: event.ad_attribution || null,
           intent_level: event.intent_level || null, purchase_power: event.purchase_power || null,
           evidence: event.evidence || null, next_followup_at: event.next_followup_at || null
         })),
