@@ -21,12 +21,15 @@ test('Harness plugin registers customer, backup tools, sales guidance and local 
         async set(ref, value) { credentialsStore.set(ref, value) }
       }
     })
-    assert.deepEqual([...tools.keys()].sort(), ['rongwei_backup_create', 'rongwei_backup_list', 'rongwei_backup_restore', 'rongwei_customer_capture', 'rongwei_customer_search', 'rongwei_record_followup'])
+    assert.deepEqual([...tools.keys()].sort(), ['rongwei_backup_create', 'rongwei_backup_list', 'rongwei_backup_restore', 'rongwei_customer_capture', 'rongwei_customer_search', 'rongwei_quote_calculate', 'rongwei_record_followup'])
     assert.equal(sections.length, 1)
     assert.match(sections[0].text, /至少三种不同策略/)
     assert.match(sections[0].text, /绝不自动发送/)
     assert.match(sections[0].text, /先调用 rongwei_customer_search/)
     assert.match(sections[0].text, /必须提供证据/)
+    const quote = JSON.parse(await tools.get('rongwei_quote_calculate').execute({ incoterm: 'CIF', currency: 'USD', vehicle_cost: 10000, sale_price: 12000, freight: 1000, insurance: 100 }))
+    assert.equal(quote.total_seller_cost, 11100)
+    assert.equal(quote.customer_quote_generated, false)
     const captured = JSON.parse(await tools.get('rongwei_customer_capture').execute({ conversation_text: 'Customer asks about exporting a vehicle to Kenya', customer_name: 'Test Buyer', country: 'Kenya', phone: '+254 700 123 456' }))
     assert.equal(captured.status, 'created')
     assert.equal(captured.profile.country, 'Kenya')
