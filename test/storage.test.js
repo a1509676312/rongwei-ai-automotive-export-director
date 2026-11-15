@@ -78,6 +78,22 @@ test('followup stores customer, company and mutual commitments separately', asyn
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+test('sales lessons and destination facts persist locally with evidence classifications', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
+  try {
+    const store = makeStore({ directory })
+    await store.recordSalesLesson({ situation: 'Buyer delays after quotation', lesson: 'Ask who approves and by what date', outcome: 'pending', confidence: 'single_case', country: 'Kenya' })
+    await store.recordDestinationFact({ country: 'Kenya', port: 'Mombasa', content: 'Port handling reference from carrier document', evidence_status: 'verified', source: 'Carrier tariff 2026', checked_at: '2026-11-15' })
+    assert.equal((await store.searchSalesLessons('Kenya'))[0].confidence, 'single_case')
+    const fact = (await store.searchDestinationFacts('Mombasa'))[0]
+    assert.equal(fact.evidence_status, 'verified')
+    assert.equal(fact.source, 'Carrier tariff 2026')
+    const exported = await store.exportAll()
+    assert.equal(exported.salesLessons.length, 1)
+    assert.equal(exported.destinationFacts.length, 1)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test('encrypted backup restores safely and snapshots the current database first', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
   try {
