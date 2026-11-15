@@ -1,15 +1,44 @@
 import { mkdir, readFile, rename, chmod, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto'
 
 const EMPTY = Object.freeze({ schemaVersion: 1, customers: [], audit: [] })
+const ENVELOPE = 'rongwei-aes-256-gcm-v1'
+const AAD = Buffer.from('RongweiAI:customers:v1', 'utf8')
 
 export function dataDirectory(env = process.env, home = homedir()) {
   return path.resolve(env.RONGWEI_DATA_DIR || path.join(home, '.rongwei-ai'))
 }
 
-export function createStore({ directory = dataDirectory(), clock = () => new Date() } = {}) {
+function encryptDatabase(db, keyText) {
+  const key = Buffer.from(keyText, 'base64')
+  if (key.length !== 32) throw new Error('Rongwei 本地加密密钥格式错误。')
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', key, iv)
+  cipher.setAAD(AAD)
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(db), 'utf8'), cipher.final()])
+  return { format: ENVELOPE, iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), ciphertext: ciphertext.toString('base64') }
+}
+
+function decryptDatabase(envelope, keyText) {
+  if (envelope?.format !== ENVELOPE) throw new Error('本地客户库格式不受支持或不是加密文件；原文件已保留。')
+  const key = Buffer.from(keyText, 'base64')
+  if (key.length !== 32) throw new Error('Rongwei 本地加密密钥格式错误。')
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64'))
+    decipher.setAAD(AAD)
+    decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'))
+    const plaintext = Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]).toString('utf8')
+    const db = JSON.parse(plaintext)
+    if (db?.schemaVersion !== 1 || !Array.isArray(db.customers) || !Array.isArray(db.audit)) throw new Error('数据库结构不受支持。')
+    return db
+  } catch (error) {
+    throw new Error('无法解密 Rongwei 本地客户库：密钥不匹配或文件已损坏。')
+  }
+}
+
+export function createStore({ directory = dataDirectory(), clock = () => new Date(), keyProvider } = {}) {
   const file = path.join(directory, 'customers.json')
   let queue = Promise.resolve()
 
@@ -19,10 +48,8 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
     try {
       const raw = await readFile(file, 'utf8')
       const parsed = JSON.parse(raw)
-      if (parsed?.schemaVersion !== 1 || !Array.isArray(parsed.customers) || !Array.isArray(parsed.audit)) {
-        throw new Error('Rongwei 本地客户库结构不受支持；原文件已保留，没有覆盖。')
-      }
-      return parsed
+      if (typeof keyProvider !== 'function') throw new Error('未配置本地加密密钥提供方，已拒绝读取客户资料。')
+      return decryptDatabase(parsed, await keyProvider())
     } catch (error) {
       if (error.code === 'ENOENT') return structuredClone(EMPTY)
       if (error instanceof SyntaxError) throw new Error('Rongwei 本地客户库 JSON 已损坏；原文件已保留，没有覆盖。')
@@ -32,8 +59,10 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
 
   async function save(db) {
     await mkdir(directory, { recursive: true, mode: 0o700 })
+    if (typeof keyProvider !== 'function') throw new Error('未配置本地加密密钥提供方，已拒绝写入客户资料。')
+    const encrypted = encryptDatabase(db, await keyProvider())
     const temp = `${file}.${randomUUID()}.tmp`
-    await writeFile(temp, `${JSON.stringify(db, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+    await writeFile(temp, `${JSON.stringify(encrypted, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
     await chmod(temp, 0o600).catch(() => {})
     await rename(temp, file)
     await chmod(file, 0o600).catch(() => {})
