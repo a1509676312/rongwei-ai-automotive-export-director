@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createStore } from '../src/storage.js'
@@ -137,6 +137,31 @@ test('commitment status can be completed without deleting its history', async ()
     assert.equal((await store.search(customer.customer_id))[0].open_commitments.length, 0)
     assert.equal((await store.exportAll()).customers[0].commitments[0].update_note, 'Sent to buyer')
   } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('plaintext export can be imported with merge and an encrypted pre-import snapshot', async () => {
+  const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-source-'))
+  const targetDirectory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-target-'))
+  try {
+    const source = makeStore({ directory: sourceDirectory })
+    await source.capture({ conversation_text: 'source customer', customer_name: 'Source Buyer' })
+    const exported = await source.exportPlainJson()
+    const target = makeStore({ directory: targetDirectory })
+    await target.capture({ conversation_text: 'local customer', customer_name: 'Local Buyer' })
+    const targetExports = path.join(targetDirectory, 'exports')
+    await mkdir(targetExports, { recursive: true })
+    await copyFile(exported.path, path.join(targetExports, exported.export_id))
+    const imported = await target.importPlainJson(exported.export_id, 'merge')
+    assert.equal(imported.imported_customer_count, 1)
+    assert.equal(imported.final_customer_count, 2)
+    assert.ok(imported.safety_snapshot_id)
+    const repeat = await target.importPlainJson(exported.export_id, 'merge')
+    assert.equal(repeat.final_customer_count, 2)
+    assert.equal((await target.search('Source Buyer')).length, 1)
+  } finally {
+    await rm(sourceDirectory, { recursive: true, force: true })
+    await rm(targetDirectory, { recursive: true, force: true })
+  }
 })
 
 test('encrypted backup restores safely and snapshots the current database first', async () => {
