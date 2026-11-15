@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { validateCapture, validateFollowup } from '../src/domain.js'
+import { validateCapture, validateFollowup, calculateQuote } from '../src/domain.js'
 
 test('capture requires non-empty original content', () => {
   assert.throws(() => validateCapture({ conversation_text: '  ' }), /必须包含/)
@@ -22,4 +22,18 @@ test('followup keeps intent and purchasing power as separate validated fields', 
 
 test('followup rejects invalid commitment categories', () => {
   assert.throws(() => validateFollowup({ customer_id: 'c1', summary: 'call', commitments: [{ category: 'other', description: 'x' }] }), /类别/)
+})
+
+test('quote calculator applies FOB, CIF and CIP seller-cost boundaries without inventing prices', () => {
+  const fob = calculateQuote({ incoterm: 'FOB', currency: 'USD', vehicle_cost: 10000, sale_price: 12000, origin_inland: 500, freight: 1000, insurance: 100, minimum_margin_percent: 10 })
+  assert.equal(fob.total_seller_cost, 10500)
+  assert.equal(fob.gross_profit, 1500)
+  assert.equal(fob.meets_minimum_margin, true)
+  assert.equal(fob.customer_quote_generated, false)
+  const cif = calculateQuote({ incoterm: 'CIF', currency: 'USD', vehicle_cost: 10000, sale_price: 12000, freight: 1000, insurance: 100 })
+  assert.equal(cif.total_seller_cost, 11100)
+  const cip = calculateQuote({ incoterm: 'CIP', currency: 'USD', vehicle_cost: 10000, sale_price: 12000, freight: 800, insurance: 200 })
+  assert.equal(cip.total_seller_cost, 11000)
+  assert.throws(() => calculateQuote({ incoterm: 'CIF', currency: 'USD', vehicle_cost: 10000, sale_price: 12000, freight: 100 }), /实际运输费用和保险费用/)
+  assert.throws(() => calculateQuote({ incoterm: 'DAP', currency: 'USD', vehicle_cost: 1, sale_price: 2 }), /FOB\/CIF\/CIP/)
 })
