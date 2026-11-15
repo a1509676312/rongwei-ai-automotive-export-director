@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto'
 
-const EMPTY = Object.freeze({ schemaVersion: 2, customers: [], audit: [], salesLessons: [], destinationFacts: [] })
+const EMPTY = Object.freeze({ schemaVersion: 3, customers: [], audit: [], salesLessons: [], destinationFacts: [], suppliers: [], companyProfile: {}, adAttributions: [] })
 const ENVELOPE = 'rongwei-aes-256-gcm-v1'
 const AAD = Buffer.from('RongweiAI:customers:v1', 'utf8')
 
@@ -31,8 +31,8 @@ function decryptDatabase(envelope, keyText) {
     decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'))
     const plaintext = Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]).toString('utf8')
     const db = JSON.parse(plaintext)
-    if (![1, 2].includes(db?.schemaVersion) || !Array.isArray(db.customers) || !Array.isArray(db.audit)) throw new Error('数据库结构不受支持。')
-    return { ...db, schemaVersion: 2, salesLessons: Array.isArray(db.salesLessons) ? db.salesLessons : [], destinationFacts: Array.isArray(db.destinationFacts) ? db.destinationFacts : [] }
+    if (![1, 2, 3].includes(db?.schemaVersion) || !Array.isArray(db.customers) || !Array.isArray(db.audit)) throw new Error('数据库结构不受支持。')
+    return { ...db, schemaVersion: 3, salesLessons: Array.isArray(db.salesLessons) ? db.salesLessons : [], destinationFacts: Array.isArray(db.destinationFacts) ? db.destinationFacts : [], suppliers: Array.isArray(db.suppliers) ? db.suppliers : [], companyProfile: db.companyProfile && typeof db.companyProfile === 'object' ? db.companyProfile : {}, adAttributions: Array.isArray(db.adAttributions) ? db.adAttributions : [] }
   } catch {
     throw new Error('无法解密 Rongwei 本地客户库：密钥不匹配或文件已损坏。')
   }
@@ -127,12 +127,13 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
           customer = { id, createdAt: now, updatedAt: now, profile: {}, events: [], commitments: [] }
           db.customers.push(customer)
         }
-        const profileFields = ['customer_name', 'company_name', 'phone', 'whatsapp', 'email', 'country', 'city', 'vehicle_interest', 'quantity', 'budget', 'source']
+        const profileFields = ['customer_name', 'company_name', 'phone', 'whatsapp', 'email', 'country', 'city', 'vehicle_interest', 'quantity', 'budget', 'source', 'ad_platform', 'ad_source', 'ad_campaign', 'ad_id', 'ad_content']
         for (const key of profileFields) {
           if (typeof input[key] === 'string' && input[key].trim()) customer.profile[key] = input[key].trim()
           else if (typeof input[key] === 'number' && Number.isFinite(input[key])) customer.profile[key] = input[key]
         }
-        customer.events.push({ id: randomUUID(), type: 'customer_submitted_content', at: now, source: input.source || 'user_submitted', rawText: input.conversation_text.trim() })
+        customer.events.push({ id: randomUUID(), type: 'customer_submitted_content', at: now, source: input.source || 'user_submitted', rawText: input.conversation_text.trim(), ad_attribution: { platform: input.ad_platform || null, source: input.ad_source || null, campaign: input.ad_campaign || null, ad_id: input.ad_id || null, content: input.ad_content || null } })
+        if (input.ad_platform || input.ad_source || input.ad_campaign || input.ad_id) db.adAttributions.push({ id: randomUUID(), customer_id: id, at: now, platform: input.ad_platform || null, source: input.ad_source || null, campaign: input.ad_campaign || null, ad_id: input.ad_id || null, content: input.ad_content || null })
         customer.updatedAt = now
         db.audit.push({ id: randomUUID(), customerId: id, action: created ? 'customer_created' : 'customer_content_added', at: now })
         await save(db)
@@ -219,6 +220,59 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
       const q = String(query).trim().toLocaleLowerCase()
       const items = db.destinationFacts.filter(item => !q || [item.country, item.city, item.port, item.inland_destination, item.content, item.source].join(' ').toLocaleLowerCase().includes(q))
       return items.slice(-Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 30))).reverse()
+    },
+    async upsertCompanyProfile(input) {
+      return serialized(async () => {
+        const db = await load()
+        db.companyProfile = { ...db.companyProfile, ...Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined && value !== null && value !== '')), updated_at: clock().toISOString() }
+        db.audit.push({ id: randomUUID(), action: 'company_profile_updated', at: clock().toISOString() })
+        await save(db)
+        return structuredClone(db.companyProfile)
+      })
+    },
+    async saveSupplier(input) {
+      return serialized(async () => {
+        const db = await load()
+        const item = { id: input.supplier_id || randomUUID(), updated_at: clock().toISOString(), name: input.name, country: input.country || null, contact: input.contact || null, notes: input.notes || null, vehicle_model: input.vehicle_model || null, vehicle_cost: input.vehicle_cost ?? null, currency: input.currency || null, cost_valid_until: input.cost_valid_until || null, source: input.source || null }
+        const index = db.suppliers.findIndex(row => row.id === item.id)
+        if (index >= 0) db.suppliers[index] = { ...db.suppliers[index], ...item }
+        else db.suppliers.push(item)
+        db.audit.push({ id: randomUUID(), action: index >= 0 ? 'supplier_updated' : 'supplier_created', at: clock().toISOString() })
+        await save(db)
+        return structuredClone(item)
+      })
+    },
+    async searchSuppliers(query = '', limit = 50) {
+      const db = await load()
+      const q = String(query).trim().toLocaleLowerCase()
+      const rows = db.suppliers.filter(item => !q || [item.name, item.country, item.vehicle_model, item.notes].join(' ').toLocaleLowerCase().includes(q))
+      return rows.slice(-Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 50))).reverse()
+    },
+    async adAttributionSummary() {
+      const db = await load()
+      const groups = new Map()
+      for (const row of db.adAttributions) {
+        const key = [row.platform || 'unknown', row.source || 'unknown', row.campaign || 'unknown', row.ad_id || 'unknown'].join(' | ')
+        const item = groups.get(key) || { platform: row.platform, source: row.source, campaign: row.campaign, ad_id: row.ad_id, customer_count: 0 }
+        item.customer_count += 1
+        groups.set(key, item)
+      }
+      return [...groups.values()].sort((a, b) => b.customer_count - a.customer_count)
+    },
+    async exportPlainJson() {
+      return serialized(async () => {
+        const db = await load()
+        const exportDirectory = path.join(directory, 'exports')
+        await mkdir(exportDirectory, { recursive: true, mode: 0o700 })
+        await chmod(exportDirectory, 0o700).catch(() => {})
+        const stamp = clock().toISOString().replace(/[-:.]/g, '')
+        const exportId = `rongwei-data-export-${stamp}-${randomUUID().slice(0, 8)}.json`
+        const target = path.join(exportDirectory, exportId)
+        const payload = { exported_at: clock().toISOString(), format: 'rongwei-plaintext-export-v1', warning: '此文件包含可读客户个人信息和业务数据，请加密传输并妥善保管。', data: db }
+        await writeFile(target, JSON.stringify(payload, null, 2) + '\\n', { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+        await chmod(target, 0o600).catch(() => {})
+        return { export_id: exportId, path: target, encrypted: false, customer_count: db.customers.length, supplier_count: db.suppliers.length, warning: '明文导出包含敏感客户数据；请妥善保管，不要上传公共仓库或发送给无关人员。' }
+      })
     },
     async exportAll() { return load() },
     async createBackup() {
