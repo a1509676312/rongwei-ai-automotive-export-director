@@ -126,7 +126,7 @@ test('supplier, company profile, ad attribution and explicit plaintext export ar
     await store.saveSupplier({ name: 'Supplier A', vehicle_model: 'RAV4 Hybrid', vehicle_cost: 18000, currency: 'USD', cost_valid_until: '2026-12-31', source: 'Supplier quotation' })
     await store.capture({ conversation_text: 'Customer from Instagram ad', customer_name: 'Buyer Ad', ad_platform: 'Instagram', ad_source: 'paid', ad_campaign: 'Kenya RAV4 Nov', ad_id: 'creative-01' })
     assert.equal((await store.searchSuppliers('RAV4'))[0].vehicle_cost, 18000)
-    assert.equal((await store.searchSuppliers('RAV4'))[0].cost_status, 'valid_or_unspecified')
+    assert.equal((await store.searchSuppliers('RAV4'))[0].cost_status, 'valid')
     await store.capture({ conversation_text: 'Same customer followup from same campaign', customer_id: (await store.search('Buyer Ad'))[0].customer_id, ad_platform: 'Instagram', ad_campaign: 'Kenya RAV4' })
     assert.equal((await store.adAttributionSummary())[0].customer_count, 1)
     const exported = await store.exportPlainJson()
@@ -148,7 +148,8 @@ test('commitment status can be completed without deleting its history', async ()
     const result = await store.updateCommitment({ customer_id: customer.customer_id, commitment_id: commitment.id, status: 'completed', note: 'Sent to buyer' })
     assert.equal(result.status, 'completed')
     assert.equal((await store.search(customer.customer_id))[0].open_commitments.length, 0)
-    assert.equal((await store.exportAll()).customers[0].commitments[0].update_note, 'Sent to buyer')
+    assert.equal((await store.exportAll()).customers[0].commitments[0].history.length, 1)
+    assert.equal((await store.exportAll()).customers[0].commitments[0].history[0].note, 'Sent to buyer')
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
