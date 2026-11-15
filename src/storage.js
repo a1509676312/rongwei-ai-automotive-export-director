@@ -43,6 +43,16 @@ function normalizeContact(field, value) {
   return field === 'email' ? normalized : normalized.replace(/[^\p{L}\p{N}]/gu, '')
 }
 
+function findPossibleNameMatches(customers, input) {
+  const name = String(input.customer_name || '').trim().toLocaleLowerCase()
+  const company = String(input.company_name || '').trim().toLocaleLowerCase()
+  if (!name || !company) return []
+  return customers.filter(customer =>
+    String(customer.profile?.customer_name || '').trim().toLocaleLowerCase() === name &&
+    String(customer.profile?.company_name || '').trim().toLocaleLowerCase() === company
+  )
+}
+
 function findContactMatches(customers, input) {
   const fields = ['phone', 'whatsapp', 'email']
   const identifiers = fields.flatMap(field => {
@@ -107,6 +117,8 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
           if (matches.length === 1) {
             customer = matches[0]
             matchedByContact = true
+          } else if (matches.length === 0 && findPossibleNameMatches(db.customers, input).length > 0) {
+            throw new Error('姓名与公司名称匹配到已有档案，但缺少相同联系方式；请先搜索并人工确认 customer_id，避免误合并或重复建档。')
           }
         }
         const created = !customer
