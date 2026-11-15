@@ -53,6 +53,7 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         const now = clock().toISOString()
         const id = input.customer_id || randomUUID()
         let customer = db.customers.find(item => item.id === id)
+        if (input.customer_id && !customer) throw new Error('指定的 customer_id 不存在；为避免误建重复客户，本次未写入。')
         const created = !customer
         if (!customer) {
           customer = { id, createdAt: now, updatedAt: now, profile: {}, events: [], commitments: [] }
@@ -85,7 +86,7 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         created_at: customer.createdAt,
         updated_at: customer.updatedAt,
         event_count: customer.events.length,
-        latest_note: customer.events.at(-1)?.rawText?.slice(0, 500) || ''
+        latest_note: (customer.events.at(-1)?.rawText || customer.events.at(-1)?.summary || '').slice(0, 500)
       }))
     },
     async followup(input) {
