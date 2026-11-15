@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, chmod, writeFile, copyFile, readdir, stat } from 'node:fs/promises'
+import { mkdir, readFile, rename, chmod, writeFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto'
