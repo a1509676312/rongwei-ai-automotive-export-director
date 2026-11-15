@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto'
 
-const EMPTY = Object.freeze({ schemaVersion: 1, customers: [], audit: [] })
+const EMPTY = Object.freeze({ schemaVersion: 2, customers: [], audit: [], salesLessons: [], destinationFacts: [] })
 const ENVELOPE = 'rongwei-aes-256-gcm-v1'
 const AAD = Buffer.from('RongweiAI:customers:v1', 'utf8')
 
@@ -31,8 +31,8 @@ function decryptDatabase(envelope, keyText) {
     decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'))
     const plaintext = Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]).toString('utf8')
     const db = JSON.parse(plaintext)
-    if (db?.schemaVersion !== 1 || !Array.isArray(db.customers) || !Array.isArray(db.audit)) throw new Error('数据库结构不受支持。')
-    return db
+    if (![1, 2].includes(db?.schemaVersion) || !Array.isArray(db.customers) || !Array.isArray(db.audit)) throw new Error('数据库结构不受支持。')
+    return { ...db, schemaVersion: 2, salesLessons: Array.isArray(db.salesLessons) ? db.salesLessons : [], destinationFacts: Array.isArray(db.destinationFacts) ? db.destinationFacts : [] }
   } catch {
     throw new Error('无法解密 Rongwei 本地客户库：密钥不匹配或文件已损坏。')
   }
@@ -177,6 +177,36 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         await save(db)
         return { customer_id: customer.id, followup_id: event.id, commitments_added: (input.commitments || []).length, next_followup_at: event.next_followup_at }
       })
+    },
+    async recordSalesLesson(input) {
+      return serialized(async () => {
+        const db = await load()
+        const item = { id: randomUUID(), created_at: clock().toISOString(), situation: input.situation, lesson: input.lesson, outcome: input.outcome || 'unknown', confidence: input.confidence || 'single_case', country: input.country || null, vehicle: input.vehicle || null, evidence: input.evidence || null, source: input.source || 'user_selected_or_corrected' }
+        db.salesLessons.push(item)
+        await save(db)
+        return structuredClone(item)
+      })
+    },
+    async searchSalesLessons(query = '', limit = 20) {
+      const db = await load()
+      const q = String(query).trim().toLocaleLowerCase()
+      const items = db.salesLessons.filter(item => !q || [item.situation, item.lesson, item.country, item.vehicle, item.evidence].join(' ').toLocaleLowerCase().includes(q))
+      return items.slice(-Math.max(1, Math.min(50, Number.isInteger(limit) ? limit : 20))).reverse()
+    },
+    async recordDestinationFact(input) {
+      return serialized(async () => {
+        const db = await load()
+        const item = { id: randomUUID(), created_at: clock().toISOString(), country: input.country, city: input.city || null, port: input.port || null, inland_destination: input.inland_destination || null, content: input.content, evidence_status: input.evidence_status, source: input.source || null, source_url: input.source_url || null, checked_at: input.checked_at || null, expires_at: input.expires_at || null }
+        db.destinationFacts.push(item)
+        await save(db)
+        return structuredClone(item)
+      })
+    },
+    async searchDestinationFacts(query = '', limit = 30) {
+      const db = await load()
+      const q = String(query).trim().toLocaleLowerCase()
+      const items = db.destinationFacts.filter(item => !q || [item.country, item.city, item.port, item.inland_destination, item.content, item.source].join(' ').toLocaleLowerCase().includes(q))
+      return items.slice(-Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 30))).reverse()
     },
     async exportAll() { return load() },
     async createBackup() {
