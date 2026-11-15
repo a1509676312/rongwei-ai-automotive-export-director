@@ -37,10 +37,10 @@ function currencyDigits(currency) {
 }
 
 function toMinorUnits(value, digits, field) {
-  if (!Number.isFinite(value) || value < 0) throw new Error(\`\${field} 必须是大于或等于 0 的有效数字。\`)
+  if (!Number.isFinite(value) || value < 0) throw new Error(\`${field} 必须是大于或等于 0 的有效数字。\`)
   const text = String(value)
   const match = text.match(/^(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i)
-  if (!match) throw new Error(\`\${field} 金额格式无效。\`)
+  if (!match) throw new Error(\`${field} 金额格式无效。\`)
   const fraction = match[2] || ''
   const exponent = Number(match[3] || 0)
   const allDigits = BigInt(match[1] + fraction)
@@ -56,7 +56,7 @@ function fromMinorUnits(value, digits) {
   const base = 10n ** BigInt(digits)
   const whole = value / base
   const fraction = (value % base).toString().padStart(digits, '0')
-  return digits ? \`\${whole}.\${fraction}\` : whole.toString()
+  return digits ? \`${whole}.${fraction}\` : whole.toString()
 }
 
 export function calculateQuote(input) {
@@ -93,8 +93,8 @@ export function calculateQuote(input) {
   if (['CIF', 'CIP'].includes(input.incoterm)) {
     if (input.insurance_coverage_percent !== undefined && (!Number.isFinite(input.insurance_coverage_percent) || input.insurance_coverage_percent < 110)) throw new Error('Incoterms 2020 通常要求保险金额至少为合同价的 110%；低于该值需核实合同是否另有约定。')
     if (input.insurance_coverage_percent === undefined) warnings.push('未提供保险金额比例；通常至少按合同价 110% 投保，需核对保险凭证和合同约定。')
-    if (!input.insurance_clause) warnings.push(\`未提供保险条款；\${input.incoterm} 通常分别要求较低的 ICC(C) 或较高的 ICC(A) 保障，需核对保单及合同。\`)
-    else if (!requiredClause.some(item => String(input.insurance_clause).toUpperCase().includes(item.toUpperCase()))) warnings.push(\`所填保险条款与 \${input.incoterm} 通常要求的保障范围不同，请人工核对是否有合同特别约定。\`)
+    if (!input.insurance_clause) warnings.push(\`未提供保险条款；${input.incoterm} 通常分别要求较低的 ICC(C) 或较高的 ICC(A) 保障，需核对保单及合同。\`)
+    else if (!requiredClause.some(item => String(input.insurance_clause).toUpperCase().includes(item.toUpperCase()))) warnings.push(\`所填保险条款与 ${input.incoterm} 通常要求的保障范围不同，请人工核对是否有合同特别约定。\`)
   }
   if (margin !== null && margin < minimum) warnings.push('当前毛利率低于设定的最低利润率门槛。')
   if (input.incoterm === 'FOB' && (amounts.freight > 0n || amounts.insurance > 0n)) warnings.push('已输入的海运费/保险费未计入 FOB 卖方成本；请确认它们是否应作为买方承担费用或另行列示。')
