@@ -65,3 +65,20 @@ export function calculateQuote(input) {
     warnings, customer_quote_generated: false
   }
 }
+
+export function validateSalesLesson(input) {
+  if (!input || typeof input.situation !== 'string' || !input.situation.trim()) throw new Error('必须填写经验发生的销售情境。')
+  if (typeof input.lesson !== 'string' || !input.lesson.trim()) throw new Error('必须填写总结出的经验。')
+  if (!['won', 'lost', 'pending', 'unknown'].includes(input.outcome || 'unknown')) throw new Error('经验结果只能是 won/lost/pending/unknown。')
+  if (!['single_case', 'repeated', 'verified'].includes(input.confidence || 'single_case')) throw new Error('经验可信级别只能是 single_case/repeated/verified。')
+  return { ...input, situation: input.situation.trim(), lesson: input.lesson.trim() }
+}
+
+export function validateDestinationFact(input) {
+  if (!input || typeof input.country !== 'string' || !input.country.trim()) throw new Error('目的地资料必须填写国家。')
+  if (typeof input.content !== 'string' || !input.content.trim()) throw new Error('目的地资料内容不能为空。')
+  if (!['verified', 'historical', 'ai_estimate', 'expired'].includes(input.evidence_status)) throw new Error('资料状态只能是 verified/historical/ai_estimate/expired。')
+  if (input.evidence_status === 'verified' && (!input.source || !String(input.source).trim())) throw new Error('标记为已核实的资料必须填写来源。')
+  if (input.expires_at && !/^\\d{4}-\\d{2}-\\d{2}$/.test(input.expires_at)) throw new Error('资料有效期必须使用 YYYY-MM-DD。')
+  return { ...input, country: input.country.trim(), content: input.content.trim() }
+}
