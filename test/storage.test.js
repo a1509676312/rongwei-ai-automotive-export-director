@@ -104,6 +104,38 @@ test('sales lessons and destination facts persist locally with evidence classifi
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+test('supplier, company profile, ad attribution and explicit plaintext export are stored locally', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
+  try {
+    const store = makeStore({ directory })
+    await store.upsertCompanyProfile({ display_name: 'Rongwei Auto', minimum_margin_percent: 12 })
+    await store.saveSupplier({ name: 'Supplier A', vehicle_model: 'RAV4 Hybrid', vehicle_cost: 18000, currency: 'USD', cost_valid_until: '2026-12-31', source: 'Supplier quotation' })
+    await store.capture({ conversation_text: 'Customer from Instagram ad', customer_name: 'Buyer Ad', ad_platform: 'Instagram', ad_source: 'paid', ad_campaign: 'Kenya RAV4 Nov', ad_id: 'creative-01' })
+    assert.equal((await store.searchSuppliers('RAV4'))[0].vehicle_cost, 18000)
+    assert.equal((await store.adAttributionSummary())[0].customer_count, 1)
+    const exported = await store.exportPlainJson()
+    const file = await readFile(exported.path, 'utf8')
+    assert.match(file, /rongwei-plaintext-export-v1/)
+    assert.match(file, /Buyer Ad/)
+    assert.equal(exported.encrypted, false)
+    assert.equal((await stat(exported.path)).mode & 0o777, 0o600)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('commitment status can be completed without deleting its history', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
+  try {
+    const store = makeStore({ directory })
+    const customer = await store.capture({ conversation_text: 'initial' })
+    await store.followup({ customer_id: customer.customer_id, summary: 'follow up', commitments: [{ category: 'company', description: 'Send photos' }] })
+    const commitment = (await store.search(customer.customer_id))[0].open_commitments[0]
+    const result = await store.updateCommitment({ customer_id: customer.customer_id, commitment_id: commitment.id, status: 'completed', note: 'Sent to buyer' })
+    assert.equal(result.status, 'completed')
+    assert.equal((await store.search(customer.customer_id))[0].open_commitments.length, 0)
+    assert.equal((await store.exportAll()).customers[0].commitments[0].update_note, 'Sent to buyer')
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test('encrypted backup restores safely and snapshots the current database first', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
   try {
