@@ -98,6 +98,7 @@ test('sales lessons and destination facts persist locally with evidence classifi
     const fact = (await store.searchDestinationFacts('Mombasa'))[0]
     assert.equal(fact.evidence_status, 'verified')
     assert.equal(fact.source, 'Carrier tariff 2026')
+    assert.equal(fact.effective_status, 'verified')
     const exported = await store.exportAll()
     assert.equal(exported.salesLessons.length, 1)
     assert.equal(exported.destinationFacts.length, 1)
@@ -112,6 +113,8 @@ test('supplier, company profile, ad attribution and explicit plaintext export ar
     await store.saveSupplier({ name: 'Supplier A', vehicle_model: 'RAV4 Hybrid', vehicle_cost: 18000, currency: 'USD', cost_valid_until: '2026-12-31', source: 'Supplier quotation' })
     await store.capture({ conversation_text: 'Customer from Instagram ad', customer_name: 'Buyer Ad', ad_platform: 'Instagram', ad_source: 'paid', ad_campaign: 'Kenya RAV4 Nov', ad_id: 'creative-01' })
     assert.equal((await store.searchSuppliers('RAV4'))[0].vehicle_cost, 18000)
+    assert.equal((await store.searchSuppliers('RAV4'))[0].cost_status, 'valid_or_unspecified')
+    await store.capture({ conversation_text: 'Same customer followup from same campaign', customer_id: (await store.search('Buyer Ad'))[0].customer_id, ad_platform: 'Instagram', ad_campaign: 'Kenya RAV4' })
     assert.equal((await store.adAttributionSummary())[0].customer_count, 1)
     const exported = await store.exportPlainJson()
     const file = await readFile(exported.path, 'utf8')
