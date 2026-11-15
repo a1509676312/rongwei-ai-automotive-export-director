@@ -36,7 +36,7 @@ export function apply(ctx) {
     order: 9500,
     text: `你是 Rongwei AI 汽车出口销售总监，协助用户分析客户、推进成交并沉淀可复用的销售经验。默认用简体中文与用户沟通，表达专业、直接、简洁，不写官腔。
 
-客户聊天处理：用户主动提交客户聊天、截图文字或业务资料后，先调用 rongwei_customer_search，使用电话、WhatsApp、邮箱等强标识核对已有档案；只有在无匹配或用户确认是新客户时才新建。若搜索到唯一匹配，必须使用该 customer_id 追加；若有多个匹配，先向用户澄清，不得新建。然后调用 rongwei_customer_capture 保存原始内容和可确认字段。不得把推测写成事实，不得覆盖或改写原始记录。缺失信息保持未知。
+附件处理：若当前 Harness/模型能够读取用户本轮上传的图片或文档，先基于实际可见内容分析；可读取到的文字应调用 rongwei_attachment_capture 保存，并注明 extraction_method、confidence 和原文件名。不得声称插件自身已完成 OCR 或解析模型不可见的文件；扫描件/图片文字无法可靠读取时，明确要求用户提供清晰图片或文本，不得猜测。客户聊天处理：用户主动提交客户聊天、截图文字或业务资料后，先调用 rongwei_customer_search，使用电话、WhatsApp、邮箱等强标识核对已有档案；只有在无匹配或用户确认是新客户时才新建。若搜索到唯一匹配，必须使用该 customer_id 追加；若有多个匹配，先向用户澄清，不得新建。然后调用 rongwei_customer_capture 保存原始内容和可确认字段。不得把推测写成事实，不得覆盖或改写原始记录。缺失信息保持未知。
 
 销售判断：分别判断购买意向等级 S/A/B/C/D 与购买力（confirmed/likely/unclear/low），两者不可混为一谈。每个判断必须列出客户原话或事实依据；证据不足就明确说不确定。分析客户类型、采购需求、顾虑、谈判阶段、关键决策人、下一步成交动作。
 
@@ -76,6 +76,34 @@ export function apply(ctx) {
     async execute(args) {
       const result = await store.capture(validateCapture(args))
       return JSON.stringify({ customer_id: result.customer_id, status: result.status, profile: result.customer.profile, event_count: result.customer.events.length, local_file: store.file, privacy: '客户库使用 AES-256-GCM 本地加密；密钥由 DeepSeek Harness 本地凭据服务保存，不上传公共仓库' })
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_attachment_capture',
+    description: '保存当前 Harness 模型已经实际读取/提取的图片或文档文字到客户本地事件历史。此工具不读取文件路径、不执行 OCR；必须如实记录提取方式和置信度，不能保存模型不可见的内容。',
+    parameters: {
+      conversation_text: { type: 'string', required: true, description: '从本轮附件实际读取的文字、客户信息或图片内容描述；不可猜测' },
+      document_name: { type: 'string', required: true, description: '原文件名称' },
+      mime_type: { type: 'string', description: 'MIME 类型，例如 image/jpeg 或 application/pdf' },
+      extraction_method: { type: 'string', required: true, description: 'native_vision/document_text_layer/model_ocr/user_provided_text' },
+      confidence: { type: 'number', required: true, description: '提取置信度 0 到 1；不确定时使用较低值' },
+      customer_id: { type: 'string', description: '已有客户 ID；新客户留空' },
+      customer_name: { type: 'string', description: '客户姓名' },
+      company_name: { type: 'string', description: '客户公司' },
+      phone: { type: 'string', description: '电话' },
+      whatsapp: { type: 'string', description: 'WhatsApp' },
+      email: { type: 'string', description: '邮箱' },
+      country: { type: 'string', description: '国家' },
+      vehicle_interest: { type: 'string', description: '车型或车辆需求' }
+    },
+    output: stringOutput,
+    async execute(args) {
+      if (!Number.isFinite(args.confidence) || args.confidence < 0 || args.confidence > 1) throw new Error('confidence 必须在 0 到 1 之间。')
+      if (!['native_vision', 'document_text_layer', 'model_ocr', 'user_provided_text'].includes(args.extraction_method)) throw new Error('必须标注有效的附件文字提取方式。')
+      const { document_name, mime_type, extraction_method, confidence, ...capture } = args
+      const result = await store.capture({ ...validateCapture(capture), attachment_metadata: { document_name, mime_type: mime_type || null, extraction_method, confidence, note: '仅保存模型/用户本轮实际可读取的内容；插件未自行解析二进制附件。' }, source: 'harness_attachment' })
+      return JSON.stringify({ customer_id: result.customer_id, status: result.status, attachment: { document_name, mime_type: mime_type || null, extraction_method, confidence }, privacy: '附件提取文本保存在本机加密客户库；原始二进制文件不会被此工具复制。' })
     }
   }))
 
