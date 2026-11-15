@@ -21,7 +21,7 @@ test('Harness plugin registers customer, backup tools, sales guidance and local 
         async set(ref, value) { credentialsStore.set(ref, value) }
       }
     })
-    assert.deepEqual([...tools.keys()].sort(), ['rongwei_ad_attribution_summary', 'rongwei_attachment_capture', 'rongwei_backup_create', 'rongwei_backup_list', 'rongwei_backup_restore', 'rongwei_commitment_update', 'rongwei_company_profile_set', 'rongwei_customer_capture', 'rongwei_customer_search', 'rongwei_data_export', 'rongwei_destination_fact_add', 'rongwei_destination_fact_search', 'rongwei_quote_calculate', 'rongwei_record_followup', 'rongwei_sales_lesson_add', 'rongwei_sales_lesson_search', 'rongwei_supplier_save', 'rongwei_supplier_search'])
+    assert.deepEqual([...tools.keys()].sort(), ['rongwei_ad_attribution_summary', 'rongwei_attachment_capture', 'rongwei_backup_create', 'rongwei_backup_list', 'rongwei_backup_restore', 'rongwei_commitment_update', 'rongwei_company_profile_set', 'rongwei_customer_capture', 'rongwei_customer_search', 'rongwei_data_export', 'rongwei_data_import', 'rongwei_destination_fact_add', 'rongwei_destination_fact_search', 'rongwei_quote_calculate', 'rongwei_record_followup', 'rongwei_sales_lesson_add', 'rongwei_sales_lesson_search', 'rongwei_supplier_save', 'rongwei_supplier_search'])
     assert.equal(sections.length, 1)
     assert.match(sections[0].text, /至少三种不同策略/)
     assert.match(sections[0].text, /绝不自动发送/)
@@ -64,6 +64,7 @@ test('Harness plugin registers customer, backup tools, sales guidance and local 
     const updatedCommitment = JSON.parse(await tools.get('rongwei_commitment_update').execute({ customer_id: captured.customer_id, commitment_id: commitment.id, status: 'completed', note: 'Confirmed sent' }))
     assert.equal(updatedCommitment.status, 'completed')
     await assert.rejects(() => tools.get('rongwei_data_export').execute({ confirm_plaintext_export: false }), /明确确认/)
+    await assert.rejects(() => tools.get('rongwei_data_import').execute({ export_id: 'bad.json', mode: 'merge', confirm_import: false }), /明确确认/)
     const exportResult = JSON.parse(await tools.get('rongwei_data_export').execute({ confirm_plaintext_export: true }))
     assert.equal(exportResult.encrypted, false)
     const found = JSON.parse(await tools.get('rongwei_customer_search').execute({ query: 'Kenya' }))
