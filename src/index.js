@@ -1,6 +1,9 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { randomBytes } from 'node:crypto'
+import { chmod, mkdir, readFile, realpath, stat } from 'node:fs/promises'
+import path from 'node:path'
+import { parseUNLOCODECsv } from './unlocode.js'
 import { createStore } from './storage.js'
 import { validateCapture, validateFollowup, calculateQuote, validateSalesLesson, validateDestinationFact } from './domain.js'
 
@@ -44,7 +47,7 @@ export function apply(ctx) {
 
 跟进闭环：记录跟进时，分别保存客户承诺、我方承诺、双方约定，并尽量给出明确的下一次跟进时间。调用 rongwei_record_followup 时，意向等级必须提供 intent_evidence，购买力必须单独提供 purchase_power_evidence；每项至少 5 个字符的客户原话或可核实事实。不得用一条证据自动证明两个不同判断。证据不足时对应评级字段留空。
 
-目的地知识：调用 rongwei_destination_fact_add 保存用户提供或核实的国家/港口/内陆目的地资料，并标注 verified/historical/ai_estimate/expired 状态；查询时必须展示资料状态、来源和有效期，不得把历史参考或 AI 推测说成已核实事实。销售经验：用户明确选择/修改回复或提供成交/丢单结果后，可调用 rongwei_sales_lesson_add 记录去客户化的情境、策略和结果；查询时区分单次经验、重复规律和已验证经验，不自动将单次案例推广成通用规律。汽车出口专业性：区分贸易术语中的费用承担与风险转移；涉及 FOB/CIF/CIP 时不得混淆。用户提供实际成本和售价时，调用 rongwei_quote_calculate 进行内部成本/毛利计算；不得自行估算缺失成本，也不得把内部计算结果自动当作客户报价。跨币种换算只能使用用户提供且在有效期内的汇率，并保留来源和日期。目的国、港口、内陆运输、海关或法规信息如未核实，应标明待核实，不得凭空给出确定结论。当前没有自动报价、港口实时数据库或外部车辆识别能力时，必须坦诚说明。
+目的地知识：调用 rongwei_destination_fact_add 保存用户提供或核实的国家/港口/内陆目的地资料，并标注 verified/historical/ai_estimate/expired 状态；查询时必须展示资料状态、来源和有效期，不得把历史参考或 AI 推测说成已核实事实。销售经验：用户明确选择/修改回复或提供成交/丢单结果后，可调用 rongwei_sales_lesson_add 记录去客户化的情境、策略和结果；查询时区分单次经验、重复规律和已验证经验，不自动将单次案例推广成通用规律。汽车出口专业性：区分贸易术语中的费用承担与风险转移；涉及 FOB/CIF/CIP 时不得混淆。用户提供实际成本和售价时，调用 rongwei_quote_calculate 进行内部成本/毛利计算；不得自行估算缺失成本，也不得把内部计算结果自动当作客户报价。跨币种换算只能使用用户提供且在有效期内的汇率，并保留来源和日期。目的国、港口、内陆运输、海关或法规信息如未核实，应标明待核实，不得凭空给出确定结论。UN/LOCODE：可查询用户导入的 UNECE 地点代码和功能分类；该代码用于识别贸易运输地点，不代表港口当前开放、吞吐能力、实际承运服务、费用、航线、清关或内陆运输能力。导入文件必须来自用户核实的官方发布，任何费用与实时业务信息仍需单独核验。当前没有自动报价、港口实时数据库或外部车辆识别能力时，必须坦诚说明。
 
 算力与隐私：优先分析用户本轮新增内容和必要的客户摘要，不重复处理整段历史。供应商成本、公司资料和广告来源归因仅保存在当前用户本机。只有用户明确要求时才调用 rongwei_data_export 生成可读 JSON；导出包含敏感客户资料，必须提醒妥善保管。客户原文只写入当前用户本机 Rongwei 数据目录；不要要求或尝试上传 GitHub、公共知识库或其他用户空间。云端模型处理用户主动提交的内容仍可能涉及模型供应商的数据政策。只有用户明确要求时才创建或恢复备份；恢复前会自动保留当前数据库快照。`
   })
@@ -223,6 +226,48 @@ export function apply(ctx) {
     output: stringOutput,
     async execute(args) {
       return JSON.stringify({ facts: await store.searchDestinationFacts(args.query || '', args.limit ?? 30) })
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_unlocode_import',
+    description: '从用户放入本机 Rongwei imports 文件夹的 UNECE UN/LOCODE 官方 12 列 CSV/TXT 导入地点代码。只导入地点名称、代码、功能分类和来源版本，不代表港口当前运营状态或费用。文件不会上传网络。',
+    parameters: {
+      file_name: { type: 'string', required: true, description: 'imports 文件夹内的文件名，例如 UNLOCODE_2025-1.csv；不能填写路径' },
+      release_label: { type: 'string', required: true, description: '官方数据版本，例如 UN/LOCODE 2025-1' },
+      source_url: { type: 'string', required: true, description: '官方 UNECE 发布页面或下载链接' }
+    },
+    output: stringOutput,
+    async execute(args) {
+      const fileName = String(args.file_name || '')
+      if (!fileName || path.basename(fileName) !== fileName || !/\.(csv|txt)$/i.test(fileName) || /[\x00-\x1f]/.test(fileName)) throw new Error('文件名无效。请将 .csv 或 .txt 文件放入 Rongwei imports 文件夹，并只填写文件名。')
+      const releaseLabel = String(args.release_label || '').trim()
+      if (!releaseLabel || releaseLabel.length > 80) throw new Error('必须填写不超过 80 个字符的数据版本。')
+      let source
+      try { source = new URL(String(args.source_url || '')) } catch { throw new Error('必须填写有效的 UNECE 官方来源链接。') }
+      if (source.protocol !== 'https:' || !(source.hostname === 'unece.org' || source.hostname.endsWith('.unece.org'))) throw new Error('来源链接必须来自 HTTPS 的 unece.org 官方域名。')
+      const importDirectory = store.importDirectory
+      await mkdir(importDirectory, { recursive: true, mode: 0o700 })
+      await chmod(importDirectory, 0o700).catch(() => {})
+      const root = await realpath(importDirectory)
+      const target = await realpath(path.join(root, fileName))
+      if (!target.startsWith(root + path.sep)) throw new Error('导入文件必须位于 Rongwei imports 文件夹内。')
+      const info = await stat(target)
+      if (!info.isFile() || info.size < 1 || info.size > 20 * 1024 * 1024) throw new Error('导入文件必须是非空普通文件，且不超过 20 MiB。')
+      const csvText = await readFile(target, 'utf8')
+      if (csvText.includes('\uFFFD')) throw new Error('文件不是有效 UTF-8 文本；请从 UNECE 下载 UTF-8/CSV 版本。')
+      const parsed = parseUNLOCODECsv(csvText)
+      const result = await store.importUNLOCODE(parsed.entries, { release_label: releaseLabel, source_url: source.toString() })
+      return JSON.stringify({ ...result, file_name: fileName, skipped_rows: parsed.skipped_rows, source_row_count: parsed.source_row_count, data_scope: 'UN/LOCODE 地点身份与功能分类；不含实时运营、费用、航线、清关或内陆运输事实。', storage: '导入结果保存在本机 AES-256-GCM 加密数据库。' })
+    }
+  }))
+  ctx.tools.register(defineTool({
+    name: 'rongwei_unlocode_search',
+    description: '查询本机已导入的 UN/LOCODE 官方地点代码。功能位仅表示地点登记的运输功能分类，不代表当前实际运营、费用或服务。',
+    parameters: { query: { type: 'string', description: '国家代码、UN/LOCODE、地点名或功能关键词；留空列出最近导入项目' }, limit: { type: 'integer', description: '返回 1 到 50 条，默认 20' } },
+    output: stringOutput,
+    async execute(args) {
+      return JSON.stringify({ entries: await store.searchUNLOCODE(args.query || '', args.limit ?? 20), notice: 'UN/LOCODE 不是实时港口运营/费率数据库；请另行核验实际服务和费用。' })
     }
   }))
 

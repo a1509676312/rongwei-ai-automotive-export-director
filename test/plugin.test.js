@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { apply } from '../src/index.js'
@@ -21,7 +21,7 @@ test('Harness plugin registers customer, backup tools, sales guidance and local 
         async set(ref, value) { credentialsStore.set(ref, value) }
       }
     })
-    assert.deepEqual([...tools.keys()].sort(), ['rongwei_ad_attribution_summary', 'rongwei_attachment_capture', 'rongwei_backup_create', 'rongwei_backup_list', 'rongwei_backup_restore', 'rongwei_commitment_update', 'rongwei_company_profile_set', 'rongwei_customer_capture', 'rongwei_customer_search', 'rongwei_data_export', 'rongwei_data_import', 'rongwei_destination_fact_add', 'rongwei_destination_fact_search', 'rongwei_quote_calculate', 'rongwei_record_followup', 'rongwei_sales_lesson_add', 'rongwei_sales_lesson_search', 'rongwei_supplier_save', 'rongwei_supplier_search'])
+    assert.deepEqual([...tools.keys()].sort(), ['rongwei_ad_attribution_summary', 'rongwei_attachment_capture', 'rongwei_backup_create', 'rongwei_backup_list', 'rongwei_backup_restore', 'rongwei_commitment_update', 'rongwei_company_profile_set', 'rongwei_customer_capture', 'rongwei_customer_search', 'rongwei_data_export', 'rongwei_data_import', 'rongwei_destination_fact_add', 'rongwei_destination_fact_search', 'rongwei_quote_calculate', 'rongwei_record_followup', 'rongwei_sales_lesson_add', 'rongwei_sales_lesson_search', 'rongwei_supplier_save', 'rongwei_supplier_search', 'rongwei_unlocode_import', 'rongwei_unlocode_search'])
     assert.equal(sections.length, 1)
     assert.match(sections[0].text, /至少三种不同策略/)
     assert.match(sections[0].text, /绝不自动发送/)
@@ -43,6 +43,26 @@ test('Harness plugin registers customer, backup tools, sales guidance and local 
     assert.equal(destination.evidence_status, 'verified')
     const destinationSearch = JSON.parse(await tools.get('rongwei_destination_fact_search').execute({ query: 'Mombasa' }))
     assert.equal(destinationSearch.facts.length, 1)
+    const importsDirectory = path.join(directory, 'imports')
+    await mkdir(importsDirectory, { recursive: true })
+    const unlocodeCsv = [
+      'Change,Country,Location,Name,NameWoDiacritics,SubDiv,Function,Status,Date,IATA,Coordinates,Remarks',
+      '+,CN,SHA,Shanghai,Shanghai,31,1-------,AI,2501,,3114N 12129E,"Main port, verified code"',
+      ',CN,NGB,Ningbo,Ningbo,33,1-------,AI,2501,,2952N 12133E,'
+    ].join('\n')
+    await writeFile(path.join(importsDirectory, 'unlocode.csv'), unlocodeCsv, 'utf8')
+    const sourceUrl = 'https://unlocode.unece.org/publications/'
+    const importedLocations = JSON.parse(await tools.get('rongwei_unlocode_import').execute({ file_name: 'unlocode.csv', release_label: 'UN/LOCODE 2025-1', source_url: sourceUrl }))
+    assert.equal(importedLocations.imported_count, 2)
+    assert.equal(importedLocations.inserted_count, 2)
+    const locationSearch = JSON.parse(await tools.get('rongwei_unlocode_search').execute({ query: 'Shanghai' }))
+    assert.equal(locationSearch.entries[0].code, 'CNSHA')
+    assert.equal(locationSearch.entries[0].remarks, 'Main port, verified code')
+    const importedAgain = JSON.parse(await tools.get('rongwei_unlocode_import').execute({ file_name: 'unlocode.csv', release_label: 'UN/LOCODE 2025-1', source_url: sourceUrl }))
+    assert.equal(importedAgain.inserted_count, 0)
+    assert.equal(importedAgain.updated_count, 2)
+    await assert.rejects(() => tools.get('rongwei_unlocode_import').execute({ file_name: '../unlocode.csv', release_label: 'bad', source_url: sourceUrl }), /文件名无效/)
+    await assert.rejects(() => tools.get('rongwei_unlocode_import').execute({ file_name: 'unlocode.csv', release_label: 'bad', source_url: 'https://example.com/' }), /官方域名/)
     const quote = JSON.parse(await tools.get('rongwei_quote_calculate').execute({ incoterm: 'CIF', currency: 'USD', vehicle_cost: 10000, sale_price: 12000, freight: 1000, insurance: 100 }))
     assert.equal(quote.total_seller_cost, '11100.00')
     assert.equal(quote.customer_quote_generated, false)

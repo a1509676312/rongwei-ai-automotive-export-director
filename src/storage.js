@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto'
 
-const EMPTY = Object.freeze({ schemaVersion: 3, customers: [], audit: [], salesLessons: [], destinationFacts: [], suppliers: [], companyProfile: {}, adAttributions: [] })
+const EMPTY = Object.freeze({ schemaVersion: 4, customers: [], audit: [], salesLessons: [], destinationFacts: [], unlocodeEntries: [], suppliers: [], companyProfile: {}, adAttributions: [] })
 const ENVELOPE = 'rongwei-aes-256-gcm-v1'
 const AAD = Buffer.from('RongweiAI:customers:v1', 'utf8')
 
@@ -31,8 +31,8 @@ function decryptDatabase(envelope, keyText) {
     decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'))
     const plaintext = Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]).toString('utf8')
     const db = JSON.parse(plaintext)
-    if (![1, 2, 3].includes(db?.schemaVersion) || !Array.isArray(db.customers) || !Array.isArray(db.audit)) throw new Error('数据库结构不受支持。')
-    return { ...db, schemaVersion: 3, salesLessons: Array.isArray(db.salesLessons) ? db.salesLessons : [], destinationFacts: Array.isArray(db.destinationFacts) ? db.destinationFacts : [], suppliers: Array.isArray(db.suppliers) ? db.suppliers : [], companyProfile: db.companyProfile && typeof db.companyProfile === 'object' ? db.companyProfile : {}, adAttributions: Array.isArray(db.adAttributions) ? db.adAttributions : [] }
+    if (![1, 2, 3, 4].includes(db?.schemaVersion) || !Array.isArray(db.customers) || !Array.isArray(db.audit)) throw new Error('数据库结构不受支持。')
+    return { ...db, schemaVersion: 4, salesLessons: Array.isArray(db.salesLessons) ? db.salesLessons : [], destinationFacts: Array.isArray(db.destinationFacts) ? db.destinationFacts : [], unlocodeEntries: Array.isArray(db.unlocodeEntries) ? db.unlocodeEntries : [], suppliers: Array.isArray(db.suppliers) ? db.suppliers : [], companyProfile: db.companyProfile && typeof db.companyProfile === 'object' ? db.companyProfile : {}, adAttributions: Array.isArray(db.adAttributions) ? db.adAttributions : [] }
   } catch {
     throw new Error('无法解密 Rongwei 本地客户库：密钥不匹配或文件已损坏。')
   }
@@ -104,6 +104,7 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
 
   return {
     file,
+    importDirectory: path.join(directory, 'imports'),
     async capture(input) {
       return serialized(async () => {
         const db = await load()
@@ -257,6 +258,35 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
       const items = db.destinationFacts.filter(item => !q || [item.country, item.city, item.port, item.inland_destination, item.content, item.source].join(' ').toLocaleLowerCase().includes(q))
       return items.slice(-Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 30))).reverse().map(item => ({ ...item, effective_status: item.expires_at && item.expires_at < clock().toISOString().slice(0, 10) ? 'expired' : item.evidence_status }))
     },
+    async importUNLOCODE(entries, metadata) {
+      return serialized(async () => {
+        if (!Array.isArray(entries) || entries.length === 0) throw new Error('UN/LOCODE 导入记录不能为空。')
+        const db = await load()
+        const indexByCode = new Map(db.unlocodeEntries.map((row, index) => [row.code, index]))
+        let inserted = 0, updated = 0
+        const importedAt = clock().toISOString()
+        for (const entry of entries) {
+          const currentIndex = indexByCode.get(entry.code)
+          const record = {
+            ...entry, id: currentIndex === undefined ? randomUUID() : db.unlocodeEntries[currentIndex].id,
+            source: 'UNECE UN/LOCODE', source_url: metadata.source_url, release_label: metadata.release_label,
+            license: 'CC BY 4.0', imported_at: importedAt
+          }
+          if (currentIndex === undefined) {
+            indexByCode.set(entry.code, db.unlocodeEntries.length)
+            db.unlocodeEntries.push(record); inserted += 1
+          } else { db.unlocodeEntries[currentIndex] = record; updated += 1 }
+        }
+        db.audit.push({ id: randomUUID(), action: 'unlocode_imported', at: importedAt, release_label: metadata.release_label, inserted, updated })
+        await save(db)
+        return { imported_count: entries.length, inserted_count: inserted, updated_count: updated, total_count: db.unlocodeEntries.length, release_label: metadata.release_label, source_url: metadata.source_url, license: 'CC BY 4.0' }
+      })
+    },
+    async searchUNLOCODE(query = '', limit = 20) {
+      const db = await load(), q = String(query).trim().toLocaleLowerCase()
+      const rows = db.unlocodeEntries.filter(item => !q || [item.code, item.country_code, item.location_code, item.name, item.name_without_diacritics, item.subdivision, item.function, item.status, item.iata, item.remarks].join(' ').toLocaleLowerCase().includes(q))
+      return rows.slice(-Math.max(1, Math.min(50, Number.isInteger(limit) ? limit : 20))).reverse()
+    },
     async getCompanyProfile() { return structuredClone((await load()).companyProfile) },
     async upsertCompanyProfile(input) {
       return serialized(async () => {
@@ -341,6 +371,7 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         const importedAudit = validateRows(imported.audit, '审计日志', true)
         const importedLessons = validateRows(imported.salesLessons, '销售经验')
         const importedFacts = validateRows(imported.destinationFacts, '目的地资料')
+        const importedUnlocodes = validateRows(imported.unlocodeEntries, 'UN/LOCODE');
         const importedSuppliers = validateRows(imported.suppliers, '供应商')
         const importedAttributions = validateRows(imported.adAttributions, '广告归因')
         if (imported.companyProfile !== undefined && (!imported.companyProfile || typeof imported.companyProfile !== 'object' || Array.isArray(imported.companyProfile))) throw new Error('公司资料结构无效。')
@@ -359,14 +390,15 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         let next
         if (mode === 'replace') {
           next = {
-            schemaVersion: 3,
+            schemaVersion: 4,
             customers: importedCustomers,
             audit: importedAudit,
             salesLessons: importedLessons,
             destinationFacts: importedFacts,
             suppliers: importedSuppliers,
             companyProfile: imported.companyProfile || {},
-            adAttributions: importedAttributions
+            adAttributions: importedAttributions,
+            unlocodeEntries: importedUnlocodes
           }
         } else {
           const mergeById = (left, right) => {
@@ -383,7 +415,8 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
             destinationFacts: mergeById(current.destinationFacts, importedFacts),
             suppliers: mergeById(current.suppliers, importedSuppliers),
             companyProfile: { ...(imported.companyProfile || {}), ...current.companyProfile },
-            adAttributions: mergeById(current.adAttributions, importedAttributions)
+            adAttributions: mergeById(current.adAttributions, importedAttributions),
+            unlocodeEntries: mergeById(current.unlocodeEntries, importedUnlocodes)
           }
         }
         next.audit.push({ id: randomUUID(), action: 'plaintext_data_imported_' + mode, at: clock().toISOString() })
