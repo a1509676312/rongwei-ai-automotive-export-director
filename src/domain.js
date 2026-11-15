@@ -65,7 +65,7 @@ export function calculateQuote(input) {
   if (['FOB', 'CIF'].includes(input.incoterm) && input.transport_mode && !['sea', 'inland_waterway'].includes(input.transport_mode)) throw new Error('FOB/CIF 仅适用于海运或内河水运；其他运输方式请评估 FCA/CPT/CIP。')
   const digits = currencyDigits(input.currency)
   const required = ['vehicle_cost', 'sale_price']
-  const fields = ['vehicle_cost', 'origin_inland', 'export_clearance', 'loading', 'inspection', 'bank_fee', 'commission', 'other_seller_costs', 'freight', 'insurance']
+  const fields = ['vehicle_cost', 'sale_price', 'origin_inland', 'export_clearance', 'loading', 'inspection', 'bank_fee', 'commission', 'other_seller_costs', 'freight', 'insurance']
   const amounts = {}
   for (const field of fields) {
     if (required.includes(field) || input[field] !== undefined) amounts[field] = toMinorUnits(input[field] ?? 0, digits, field)
