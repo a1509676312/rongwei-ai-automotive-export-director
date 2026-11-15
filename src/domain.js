@@ -52,8 +52,8 @@ export function calculateQuote(input) {
   if (!Number.isFinite(minimum) || minimum < 0 || minimum > 100) throw new Error('最低利润率必须在 0 到 100 之间。')
   const warnings = []
   if (input.incoterm === 'FOB') warnings.push('FOB：卖方费用通常计至装运港货物装上船；风险在货物装上船时转移。海运费与保险费不计入本次卖方 FOB 成本。')
-  if (input.incoterm === 'CIF') warnings.push('CIF：卖方支付至指定目的港的运费并按规则投保最低保险保障（通常为 ICC(C)）；风险仍在装运港货物装上船时转移。')
-  if (input.incoterm === 'CIP') warnings.push('CIP：卖方支付至指定目的地的运输并按规则投保较高保险保障（通常为 ICC(A)）；风险在货物交给第一承运人时转移。')
+  if (input.incoterm === 'CIF') warnings.push('CIF：卖方支付至指定目的港的运费并按规则投保最低保险保障（通常为 ICC(C)，保险金额通常至少为合同价的 110%，除非另有约定）；风险仍在装运港货物装上船时转移。')
+  if (input.incoterm === 'CIP') warnings.push('CIP：卖方支付至指定目的地的运输并按规则投保较高保险保障（通常为 ICC(A)，保险金额通常至少为合同价的 110%，除非另有约定）；风险在货物交给第一承运人时转移。')
   if (marginPercent !== null && marginPercent < minimum) warnings.push('当前毛利率低于设定的最低利润率门槛。')
   if (input.incoterm === 'FOB' && ((input.freight || 0) > 0 || (input.insurance || 0) > 0)) warnings.push('已输入的海运费/保险费未计入 FOB 卖方成本；请确认它们是否应作为买方承担费用或另行列示。')
   return {
