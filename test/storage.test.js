@@ -50,6 +50,16 @@ test('multiple contact matches are rejected instead of guessing customer identit
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+test('matching customer and company names without contact details requires manual identity confirmation', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
+  try {
+    const store = makeStore({ directory })
+    await store.capture({ conversation_text: 'first', customer_name: 'Buyer A', company_name: 'Auto Trading Ltd' })
+    await assert.rejects(() => store.capture({ conversation_text: 'second', customer_name: 'Buyer A', company_name: 'Auto Trading Ltd' }), /人工确认 customer_id/)
+    assert.equal((await store.exportAll()).customers.length, 1)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test('unknown explicit customer id is rejected instead of creating a duplicate', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
   try {
