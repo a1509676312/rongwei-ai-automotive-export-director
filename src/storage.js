@@ -236,8 +236,9 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
       const db = await load()
       const q = String(query).trim().toLocaleLowerCase()
       const items = db.destinationFacts.filter(item => !q || [item.country, item.city, item.port, item.inland_destination, item.content, item.source].join(' ').toLocaleLowerCase().includes(q))
-      return items.slice(-Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 30))).reverse()
+      return items.slice(-Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 30))).reverse().map(item => ({ ...item, effective_status: item.expires_at && item.expires_at < clock().toISOString().slice(0, 10) ? 'expired' : item.evidence_status }))
     },
+    async getCompanyProfile() { return structuredClone((await load()).companyProfile) },
     async upsertCompanyProfile(input) {
       return serialized(async () => {
         const db = await load()
@@ -270,11 +271,12 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
       const groups = new Map()
       for (const row of db.adAttributions) {
         const key = [row.platform || 'unknown', row.source || 'unknown', row.campaign || 'unknown', row.ad_id || 'unknown'].join(' | ')
-        const item = groups.get(key) || { platform: row.platform, source: row.source, campaign: row.campaign, ad_id: row.ad_id, customer_count: 0 }
-        item.customer_count += 1
+        const item = groups.get(key) || { platform: row.platform, source: row.source, campaign: row.campaign, ad_id: row.ad_id, customer_count: 0, customer_ids: new Set() }
+        item.customer_ids.add(row.customer_id)
+        item.customer_count = item.customer_ids.size
         groups.set(key, item)
       }
-      return [...groups.values()].sort((a, b) => b.customer_count - a.customer_count)
+      return [...groups.values()].map(({ customer_ids, ...item }) => item).sort((a, b) => b.customer_count - a.customer_count)
     },
     async exportPlainJson() {
       return serialized(async () => {
