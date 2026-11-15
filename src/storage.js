@@ -45,12 +45,12 @@ function normalizeContact(value) {
 function findContactMatches(customers, input) {
   const fields = ['phone', 'whatsapp', 'email']
   const identifiers = fields.flatMap(field => {
-    const value = normalizeContact(input[field])
+    const value = normalizeContact(field, input[field])
     return value ? [{ field, value }] : []
   })
   if (!identifiers.length) return []
   return customers.filter(customer => identifiers.some(({ field, value }) =>
-    normalizeContact(customer.profile?.[field]) === value
+    normalizeContact(field, customer.profile?.[field]) === value
   ))
 }
 
