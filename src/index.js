@@ -46,7 +46,7 @@ export function apply(ctx) {
 
 目的地知识：调用 rongwei_destination_fact_add 保存用户提供或核实的国家/港口/内陆目的地资料，并标注 verified/historical/ai_estimate/expired 状态；查询时必须展示资料状态、来源和有效期，不得把历史参考或 AI 推测说成已核实事实。销售经验：用户明确选择/修改回复或提供成交/丢单结果后，可调用 rongwei_sales_lesson_add 记录去客户化的情境、策略和结果；查询时区分单次经验、重复规律和已验证经验，不自动将单次案例推广成通用规律。汽车出口专业性：区分贸易术语中的费用承担与风险转移；涉及 FOB/CIF/CIP 时不得混淆。用户提供实际成本和售价时，调用 rongwei_quote_calculate 进行内部成本/毛利计算；不得自行估算缺失成本，也不得把内部计算结果自动当作客户报价。目的国、港口、内陆运输、海关或法规信息如未核实，应标明待核实，不得凭空给出确定结论。当前没有自动报价、港口实时数据库或外部车辆识别能力时，必须坦诚说明。
 
-算力与隐私：优先分析用户本轮新增内容和必要的客户摘要，不重复处理整段历史。客户原文只写入当前用户本机 Rongwei 数据目录；不要要求或尝试上传 GitHub、公共知识库或其他用户空间。云端模型处理用户主动提交的内容仍可能涉及模型供应商的数据政策。只有用户明确要求时才创建或恢复备份；恢复前会自动保留当前数据库快照。`
+算力与隐私：优先分析用户本轮新增内容和必要的客户摘要，不重复处理整段历史。供应商成本、公司资料和广告来源归因仅保存在当前用户本机。只有用户明确要求时才调用 rongwei_data_export 生成可读 JSON；导出包含敏感客户资料，必须提醒妥善保管。客户原文只写入当前用户本机 Rongwei 数据目录；不要要求或尝试上传 GitHub、公共知识库或其他用户空间。云端模型处理用户主动提交的内容仍可能涉及模型供应商的数据政策。只有用户明确要求时才创建或恢复备份；恢复前会自动保留当前数据库快照。`
   })
 
   ctx.tools.register(defineTool({
@@ -65,7 +65,12 @@ export function apply(ctx) {
       vehicle_interest: { type: 'string', description: '感兴趣的汽车品牌、车型或需求' },
       quantity: { type: 'string', description: '采购数量；未知则留空' },
       budget: { type: 'string', description: '客户预算原始表述；未知则留空' },
-      source: { type: 'string', description: '客户来源或内容来源' }
+      source: { type: 'string', description: '客户来源或内容来源' },
+      ad_platform: { type: 'string', description: '广告平台，可选' },
+      ad_source: { type: 'string', description: '广告来源，可选' },
+      ad_campaign: { type: 'string', description: '广告活动/推广计划，可选' },
+      ad_id: { type: 'string', description: '广告素材或广告编号，可选' },
+      ad_content: { type: 'string', description: '广告内容标识，可选' }
     },
     output: stringOutput,
     async execute(args) {
@@ -190,11 +195,94 @@ export function apply(ctx) {
       loading: { type: 'number', description: '装载及装船前费用' },
       freight: { type: 'number', description: '实际国际运输费用；CIF/CIP 必填' },
       insurance: { type: 'number', description: '实际保险费用；CIF/CIP 必填' },
+      transport_mode: { type: 'string', description: 'sea/inland_waterway/road/air/rail/multimodal' },
+      inspection: { type: 'number', description: '检验费用' },
+      bank_fee: { type: 'number', description: '银行及收款费用' },
+      commission: { type: 'number', description: '销售佣金' },
+      other_seller_costs: { type: 'number', description: '其他由卖方承担的实际费用' },
+      insurance_clause: { type: 'string', description: '实际保险条款，例如 ICC(A) 或 ICC(C)' },
+      insurance_coverage_percent: { type: 'number', description: '保险金额占合同价比例，通常至少 110%' },
       minimum_margin_percent: { type: 'number', description: '公司最低毛利率门槛，百分比' }
     },
     output: stringOutput,
     async execute(args) {
       return JSON.stringify(calculateQuote(args))
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_company_profile_set',
+    description: '仅根据用户提供的真实资料保存本机公司资料和默认利润门槛；不自动对客户披露。',
+    parameters: {
+      legal_name: { type: 'string', description: '公司法定名称' },
+      display_name: { type: 'string', description: '公司对外名称' },
+      country: { type: 'string', description: '注册国家' },
+      address: { type: 'string', description: '公司地址' },
+      export_license_notes: { type: 'string', description: '出口资质备注' },
+      default_currency: { type: 'string', description: '默认核算货币' },
+      minimum_margin_percent: { type: 'number', description: '默认最低毛利率门槛' },
+      bank_details_note: { type: 'string', description: '仅作内部备注，不建议保存完整账号或密码' }
+    },
+    output: stringOutput,
+    async execute(args) {
+      if (args.minimum_margin_percent !== undefined && (!Number.isFinite(args.minimum_margin_percent) || args.minimum_margin_percent < 0 || args.minimum_margin_percent > 100)) throw new Error('最低毛利率必须在 0 到 100 之间。')
+      return JSON.stringify(await store.upsertCompanyProfile(args))
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_supplier_save',
+    description: '保存用户提供的供应商和车型成本信息，记录币种、来源及有效期；过期成本不可视为当前报价。',
+    parameters: {
+      supplier_id: { type: 'string', description: '已有供应商 ID，用于更新' },
+      name: { type: 'string', required: true, description: '供应商名称' },
+      country: { type: 'string', description: '供应商国家' },
+      contact: { type: 'string', description: '供应商联系人或联系方式' },
+      notes: { type: 'string', description: '供应商备注' },
+      vehicle_model: { type: 'string', description: '对应车型' },
+      vehicle_cost: { type: 'number', description: '供应商提供的车辆成本' },
+      currency: { type: 'string', description: '成本货币代码' },
+      cost_valid_until: { type: 'string', description: '成本有效期 YYYY-MM-DD' },
+      source: { type: 'string', description: '成本来源或报价单编号' }
+    },
+    output: stringOutput,
+    async execute(args) {
+      if (!args.name?.trim()) throw new Error('必须填写供应商名称。')
+      if (args.vehicle_cost !== undefined && (!Number.isFinite(args.vehicle_cost) || args.vehicle_cost < 0)) throw new Error('供应商成本必须是大于或等于 0 的数字。')
+      if (args.currency && !/^[A-Z]{3}$/.test(args.currency)) throw new Error('币种必须是三位大写代码。')
+      if (args.cost_valid_until && !/^\\d{4}-\\d{2}-\\d{2}$/.test(args.cost_valid_until)) throw new Error('成本有效期必须使用 YYYY-MM-DD。')
+      return JSON.stringify(await store.saveSupplier(args))
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_supplier_search',
+    description: '检索本机供应商和车型成本；回答时必须检查成本有效期、币种和来源。',
+    parameters: { query: { type: 'string', description: '供应商、国家或车型关键词' }, limit: { type: 'integer', description: '最多返回 100 条' } },
+    output: stringOutput,
+    async execute(args) {
+      return JSON.stringify({ suppliers: await store.searchSuppliers(args.query || '', args.limit ?? 50) })
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_ad_attribution_summary',
+    description: '汇总本机记录的广告来源、活动及素材带来的客户建档数量；不把客户数量等同成交数量。',
+    parameters: {},
+    output: stringOutput,
+    async execute() {
+      return JSON.stringify({ attribution: await store.adAttributionSummary(), note: '该统计是客户建档归因，不代表成交或回款。' })
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_data_export',
+    description: '仅在用户明确要求导出/迁移数据时调用。生成包含可读客户个人信息、跟进、供应商、公司资料和知识记录的 JSON 文件；必须在调用前告知用户这是明文敏感数据文件。',
+    parameters: { confirm_plaintext_export: { type: 'boolean', required: true, description: '用户已明确确认需要生成明文数据导出文件时传 true' } },
+    output: stringOutput,
+    async execute(args) {
+      if (args.confirm_plaintext_export !== true) throw new Error('必须先向用户说明明文导出包含敏感客户资料，并取得明确确认。')
+      return JSON.stringify(await store.exportPlainJson())
     }
   }))
 
