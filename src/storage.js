@@ -33,9 +33,25 @@ function decryptDatabase(envelope, keyText) {
     const db = JSON.parse(plaintext)
     if (db?.schemaVersion !== 1 || !Array.isArray(db.customers) || !Array.isArray(db.audit)) throw new Error('数据库结构不受支持。')
     return db
-  } catch (error) {
+  } catch {
     throw new Error('无法解密 Rongwei 本地客户库：密钥不匹配或文件已损坏。')
   }
+}
+
+function normalizeContact(value) {
+  return String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/[\s()+.\-]/g, '')
+}
+
+function findContactMatches(customers, input) {
+  const fields = ['phone', 'whatsapp', 'email']
+  const identifiers = fields.flatMap(field => {
+    const value = normalizeContact(input[field])
+    return value ? [{ field, value }] : []
+  })
+  if (!identifiers.length) return []
+  return customers.filter(customer => identifiers.some(({ field, value }) =>
+    normalizeContact(customer.profile?.[field]) === value
+  ))
 }
 
 export function createStore({ directory = dataDirectory(), clock = () => new Date(), keyProvider } = {}) {
@@ -81,10 +97,19 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
       return serialized(async () => {
         const db = await load()
         const now = clock().toISOString()
-        const id = input.customer_id || randomUUID()
-        let customer = db.customers.find(item => item.id === id)
+        let customer = input.customer_id ? db.customers.find(item => item.id === input.customer_id) : null
         if (input.customer_id && !customer) throw new Error('指定的 customer_id 不存在；为避免误建重复客户，本次未写入。')
+        let matchedByContact = false
+        if (!input.customer_id) {
+          const matches = findContactMatches(db.customers, input)
+          if (matches.length > 1) throw new Error('联系方式匹配到多个客户档案，存在身份冲突；请先搜索并人工确认 customer_id，本次未写入。')
+          if (matches.length === 1) {
+            customer = matches[0]
+            matchedByContact = true
+          }
+        }
         const created = !customer
+        const id = customer?.id || randomUUID()
         if (!customer) {
           customer = { id, createdAt: now, updatedAt: now, profile: {}, events: [], commitments: [] }
           db.customers.push(customer)
@@ -98,16 +123,17 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         customer.updatedAt = now
         db.audit.push({ id: randomUUID(), customerId: id, action: created ? 'customer_created' : 'customer_content_added', at: now })
         await save(db)
-        return { customer_id: id, status: created ? 'created' : 'updated', customer: structuredClone(customer) }
+        return { customer_id: id, status: created ? 'created' : 'updated', matched_by_contact: matchedByContact, customer: structuredClone(customer) }
       })
     },
-    async search(query = '', limit = 20) {
+    async search(query = '', limit = 20, historyLimit = 10) {
       const db = await load()
       const q = String(query).trim().toLocaleLowerCase()
       const safeLimit = Math.max(1, Math.min(50, Number.isInteger(limit) ? limit : 20))
+      const safeHistoryLimit = Math.max(1, Math.min(20, Number.isInteger(historyLimit) ? historyLimit : 10))
       const matches = db.customers.filter(customer => {
         if (!q) return true
-        const haystack = [customer.id, ...Object.values(customer.profile), ...customer.events.map(event => event.rawText || '')].join(' ').toLocaleLowerCase()
+        const haystack = [customer.id, ...Object.values(customer.profile), ...customer.events.map(event => event.rawText || event.summary || '')].join(' ').toLocaleLowerCase()
         return haystack.includes(q)
       })
       return matches.slice(-safeLimit).reverse().map(customer => ({
@@ -116,7 +142,14 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         created_at: customer.createdAt,
         updated_at: customer.updatedAt,
         event_count: customer.events.length,
-        latest_note: (customer.events.at(-1)?.rawText || customer.events.at(-1)?.summary || '').slice(0, 500)
+        history: customer.events.slice(-safeHistoryLimit).map(event => ({
+          type: event.type, at: event.at, summary: event.summary || null,
+          raw_text: event.rawText ? event.rawText.slice(0, 4000) : null,
+          customer_response: event.customer_response || null,
+          intent_level: event.intent_level || null, purchase_power: event.purchase_power || null,
+          evidence: event.evidence || null, next_followup_at: event.next_followup_at || null
+        })),
+        open_commitments: customer.commitments.filter(item => item.status === 'open')
       }))
     },
     async followup(input) {
@@ -144,9 +177,7 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
         return { customer_id: customer.id, followup_id: event.id, commitments_added: (input.commitments || []).length, next_followup_at: event.next_followup_at }
       })
     },
-    async exportAll() {
-      return load()
-    },
+    async exportAll() { return load() },
     async createBackup() {
       return serialized(async () => {
         await load()
