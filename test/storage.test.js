@@ -20,6 +20,15 @@ test('capture creates a local customer and preserves raw source events', async (
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+test('unknown explicit customer id is rejected instead of creating a duplicate', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
+  try {
+    const store = createStore({ directory })
+    await assert.rejects(() => store.capture({ customer_id: 'missing-id', conversation_text: 'new text' }), /不存在/)
+    assert.equal((await store.exportAll()).customers.length, 0)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test('followup stores customer, company and mutual commitments separately', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
   try {
