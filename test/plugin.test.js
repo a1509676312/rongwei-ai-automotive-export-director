@@ -43,7 +43,7 @@ test('Harness plugin registers customer, backup tools, sales guidance and local 
     const destinationSearch = JSON.parse(await tools.get('rongwei_destination_fact_search').execute({ query: 'Mombasa' }))
     assert.equal(destinationSearch.facts.length, 1)
     const quote = JSON.parse(await tools.get('rongwei_quote_calculate').execute({ incoterm: 'CIF', currency: 'USD', vehicle_cost: 10000, sale_price: 12000, freight: 1000, insurance: 100 }))
-    assert.equal(quote.total_seller_cost, 11100)
+    assert.equal(quote.total_seller_cost, '11100.00')
     assert.equal(quote.customer_quote_generated, false)
     const captured = JSON.parse(await tools.get('rongwei_customer_capture').execute({ conversation_text: 'Customer asks about exporting a vehicle to Kenya', customer_name: 'Test Buyer', country: 'Kenya', phone: '+254 700 123 456', ad_platform: 'Instagram', ad_campaign: 'Kenya RAV4' }))
     assert.equal(captured.status, 'created')
