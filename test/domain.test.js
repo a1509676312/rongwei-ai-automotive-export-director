@@ -45,6 +45,24 @@ test('quote calculator applies FOB, CIF and CIP seller-cost boundaries without i
   assert.throws(() => calculateQuote({ incoterm: 'DAP', currency: 'USD', vehicle_cost: 1, sale_price: 2 }), /FOB\/CIF\/CIP/)
 })
 
+test('quote calculator converts supplier costs only with user-provided current exchange rates', () => {
+  const quote = calculateQuote({
+    incoterm: 'FOB', currency: 'USD', transport_mode: 'sea',
+    vehicle_cost: 100000, vehicle_cost_currency: 'CNY', sale_price: 15000,
+    exchange_rates_json: '{"CNY":0.14}', fx_source: 'User supplied bank rate',
+    fx_as_of: '2026-11-15', fx_valid_until: '2026-12-01'
+  })
+  assert.equal(quote.seller_costs.vehicle_cost, '14000.00')
+  assert.equal(quote.total_seller_cost, '14000.00')
+  assert.equal(quote.gross_profit, '1000.00')
+  assert.equal(quote.fx.source, 'User supplied bank rate')
+  assert.throws(() => calculateQuote({ incoterm: 'FOB', currency: 'USD', vehicle_cost: 100000, vehicle_cost_currency: 'CNY', sale_price: 15000 }), /汇率/)
+  assert.throws(() => calculateQuote({
+    incoterm: 'FOB', currency: 'USD', vehicle_cost: 100000, vehicle_cost_currency: 'CNY', sale_price: 15000,
+    exchange_rates_json: '{"CNY":0.14}', fx_source: 'Bank', fx_as_of: '2020-01-01', fx_valid_until: '2020-01-02'
+  }), /过有效期/)
+})
+
 test('sales lesson and destination fact validation keeps confidence and evidence status explicit', async () => {
   const { validateSalesLesson, validateDestinationFact } = await import('../src/domain.js')
   assert.equal(validateSalesLesson({ situation: 'Customer delayed decision', lesson: 'Ask for exact decision date' }).confidence, undefined)
