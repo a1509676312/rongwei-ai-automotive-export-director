@@ -39,6 +39,19 @@ test('exact contact match updates existing customer instead of creating duplicat
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+test('conflicting customer identity fields are preserved and surfaced for manual review', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
+  try {
+    const store = makeStore({ directory })
+    const first = await store.capture({ conversation_text: 'first', customer_name: 'Buyer A', company_name: 'Auto Trading', phone: '+254700123456' })
+    const second = await store.capture({ conversation_text: 'second', customer_name: 'Different Person', company_name: 'Different Company', phone: '+254 700 123 456' })
+    assert.equal(second.customer_id, first.customer_id)
+    assert.equal(second.customer.profile.customer_name, 'Buyer A')
+    assert.equal(second.customer.profile.company_name, 'Auto Trading')
+    assert.deepEqual(second.profile_conflicts.map(item => item.field), ['customer_name', 'company_name'])
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test('multiple contact matches are rejected instead of guessing customer identity', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-test-'))
   try {
