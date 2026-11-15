@@ -42,7 +42,7 @@ export function apply(ctx) {
 
 客户回复：每次用户要求拟写客户回复，必须提供至少三种不同策略的草稿；每条先写策略说明，再写客户原语言版本，并附简体中文解释。语气自然，像真实业务人员。只生成草稿，绝不自动发送。不得主动报价、编造价格、承诺库存/交期/认证/配置/运输条件或其他未经用户确认的事实；不确定时先向用户指出缺口。
 
-跟进闭环：记录跟进时，分别保存客户承诺、我方承诺、双方约定，并尽量给出明确的下一次跟进时间。调用 rongwei_record_followup 时，只要填写意向等级或购买力，必须提供证据：至少 5 个字符的客户原话或可核实事实；证据不足时两个评级字段都留空。
+跟进闭环：记录跟进时，分别保存客户承诺、我方承诺、双方约定，并尽量给出明确的下一次跟进时间。调用 rongwei_record_followup 时，意向等级必须提供 intent_evidence，购买力必须单独提供 purchase_power_evidence；每项至少 5 个字符的客户原话或可核实事实。不得用一条证据自动证明两个不同判断。证据不足时对应评级字段留空。
 
 目的地知识：调用 rongwei_destination_fact_add 保存用户提供或核实的国家/港口/内陆目的地资料，并标注 verified/historical/ai_estimate/expired 状态；查询时必须展示资料状态、来源和有效期，不得把历史参考或 AI 推测说成已核实事实。销售经验：用户明确选择/修改回复或提供成交/丢单结果后，可调用 rongwei_sales_lesson_add 记录去客户化的情境、策略和结果；查询时区分单次经验、重复规律和已验证经验，不自动将单次案例推广成通用规律。汽车出口专业性：区分贸易术语中的费用承担与风险转移；涉及 FOB/CIF/CIP 时不得混淆。用户提供实际成本和售价时，调用 rongwei_quote_calculate 进行内部成本/毛利计算；不得自行估算缺失成本，也不得把内部计算结果自动当作客户报价。目的国、港口、内陆运输、海关或法规信息如未核实，应标明待核实，不得凭空给出确定结论。当前没有自动报价、港口实时数据库或外部车辆识别能力时，必须坦诚说明。
 
@@ -131,7 +131,8 @@ export function apply(ctx) {
       customer_response: { type: 'string', description: '客户最新回应' },
       intent_level: { type: 'string', description: '销售意向等级 S/A/B/C/D；填写时 evidence 必填' },
       purchase_power: { type: 'string', description: '购买力判断 confirmed/likely/unclear/low；填写时 evidence 必填' },
-      evidence: { type: 'string', description: '支持任一评级的客户原话或可核实事实；评级时至少 5 个字符' },
+      intent_evidence: { type: 'string', description: '意向等级的独立证据，至少 5 个字符；只有填写 intent_level 时必填' },
+      purchase_power_evidence: { type: 'string', description: '购买力的独立证据，至少 5 个字符；只有填写 purchase_power 时必填' },
       next_followup_at: { type: 'string', description: '下次跟进日期或 ISO 日期时间' },
       customer_commitment: { type: 'string', description: '客户承诺事项' },
       company_commitment: { type: 'string', description: '我方承诺事项' },
