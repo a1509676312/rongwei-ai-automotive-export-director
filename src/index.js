@@ -2,7 +2,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { randomBytes } from 'node:crypto'
 import { createStore } from './storage.js'
-import { validateCapture, validateFollowup, calculateQuote } from './domain.js'
+import { validateCapture, validateFollowup, calculateQuote, validateSalesLesson, validateDestinationFact } from './domain.js'
 
 export const name = 'rongwei-ai-automotive-export-director'
 export const inject = ['tools', 'systemPrompt', 'credentials']
@@ -44,7 +44,7 @@ export function apply(ctx) {
 
 跟进闭环：记录跟进时，分别保存客户承诺、我方承诺、双方约定，并尽量给出明确的下一次跟进时间。调用 rongwei_record_followup 时，只要填写意向等级或购买力，必须提供证据：至少 5 个字符的客户原话或可核实事实；证据不足时两个评级字段都留空。
 
-汽车出口专业性：区分贸易术语中的费用承担与风险转移；涉及 FOB/CIF/CIP 时不得混淆。用户提供实际成本和售价时，调用 rongwei_quote_calculate 进行内部成本/毛利计算；不得自行估算缺失成本，也不得把内部计算结果自动当作客户报价。目的国、港口、内陆运输、海关或法规信息如未核实，应标明待核实，不得凭空给出确定结论。当前没有自动报价、港口实时数据库或外部车辆识别能力时，必须坦诚说明。
+目的地知识：调用 rongwei_destination_fact_add 保存用户提供或核实的国家/港口/内陆目的地资料，并标注 verified/historical/ai_estimate/expired 状态；查询时必须展示资料状态、来源和有效期，不得把历史参考或 AI 推测说成已核实事实。销售经验：用户明确选择/修改回复或提供成交/丢单结果后，可调用 rongwei_sales_lesson_add 记录去客户化的情境、策略和结果；查询时区分单次经验、重复规律和已验证经验，不自动将单次案例推广成通用规律。汽车出口专业性：区分贸易术语中的费用承担与风险转移；涉及 FOB/CIF/CIP 时不得混淆。用户提供实际成本和售价时，调用 rongwei_quote_calculate 进行内部成本/毛利计算；不得自行估算缺失成本，也不得把内部计算结果自动当作客户报价。目的国、港口、内陆运输、海关或法规信息如未核实，应标明待核实，不得凭空给出确定结论。当前没有自动报价、港口实时数据库或外部车辆识别能力时，必须坦诚说明。
 
 算力与隐私：优先分析用户本轮新增内容和必要的客户摘要，不重复处理整段历史。客户原文只写入当前用户本机 Rongwei 数据目录；不要要求或尝试上传 GitHub、公共知识库或其他用户空间。云端模型处理用户主动提交的内容仍可能涉及模型供应商的数据政策。只有用户明确要求时才创建或恢复备份；恢复前会自动保留当前数据库快照。`
   })
@@ -114,6 +114,66 @@ export function apply(ctx) {
         .map(([category, description]) => ({ category, description }))
       const result = await store.followup(validateFollowup({ ...args, commitments }))
       return JSON.stringify(result)
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_sales_lesson_add',
+    description: '仅在用户明确选择/修改销售回复或提供客户成交、丢单结果后，保存一条去客户化的本地销售经验。单次经验不得自动视为通用规律。',
+    parameters: {
+      situation: { type: 'string', required: true, description: '销售情境，禁止包含客户姓名、电话等个人身份信息' },
+      lesson: { type: 'string', required: true, description: '可复用的策略经验' },
+      outcome: { type: 'string', description: 'won/lost/pending/unknown' },
+      confidence: { type: 'string', description: 'single_case/repeated/verified' },
+      country: { type: 'string', description: '国家，可选' },
+      vehicle: { type: 'string', description: '车型，可选' },
+      evidence: { type: 'string', description: '支持经验的去标识化结果或事实' },
+      source: { type: 'string', description: '经验来源说明' }
+    },
+    output: stringOutput,
+    async execute(args) {
+      return JSON.stringify(await store.recordSalesLesson(validateSalesLesson(args)))
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_sales_lesson_search',
+    description: '检索当前安装用户本机的销售经验库；必须区分 single_case 单次经验、repeated 重复规律和 verified 已验证经验。',
+    parameters: { query: { type: 'string', description: '情境、国家、车型或经验关键词' }, limit: { type: 'integer', description: '返回 1 到 50 条' } },
+    output: stringOutput,
+    async execute(args) {
+      return JSON.stringify({ lessons: await store.searchSalesLessons(args.query || '', args.limit ?? 20) })
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_destination_fact_add',
+    description: '保存本地目的国、港口或内陆目的地参考资料。verified 必须提供来源；区分已核实、历史参考、AI 推测和过期资料。',
+    parameters: {
+      country: { type: 'string', required: true, description: '国家' },
+      city: { type: 'string', description: '城市' },
+      port: { type: 'string', description: '港口' },
+      inland_destination: { type: 'string', description: '内陆目的地' },
+      content: { type: 'string', required: true, description: '资料内容' },
+      evidence_status: { type: 'string', required: true, description: 'verified/historical/ai_estimate/expired' },
+      source: { type: 'string', description: '来源名称或文件' },
+      source_url: { type: 'string', description: '来源链接' },
+      checked_at: { type: 'string', description: '核实日期' },
+      expires_at: { type: 'string', description: '失效日期 YYYY-MM-DD' }
+    },
+    output: stringOutput,
+    async execute(args) {
+      return JSON.stringify(await store.recordDestinationFact(validateDestinationFact(args)))
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_destination_fact_search',
+    description: '检索本地目的国、港口及内陆目的地知识。必须保留资料状态、来源和有效期，不得把推测说成已核实。',
+    parameters: { query: { type: 'string', description: '国家、城市、港口或运输关键词' }, limit: { type: 'integer', description: '返回 1 到 100 条' } },
+    output: stringOutput,
+    async execute(args) {
+      return JSON.stringify({ facts: await store.searchDestinationFacts(args.query || '', args.limit ?? 30) })
     }
   }))
 
