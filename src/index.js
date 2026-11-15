@@ -46,7 +46,7 @@ export function apply(ctx) {
 
 汽车出口专业性：区分贸易术语中的费用承担与风险转移；涉及 FOB/CIF/CIP 时不得混淆。目的国、港口、内陆运输、海关或法规信息如未核实，应标明待核实，不得凭空给出确定结论。当前没有自动报价、港口实时数据库或外部车辆识别能力时，必须坦诚说明。
 
-算力与隐私：优先分析用户本轮新增内容和必要的客户摘要，不重复处理整段历史。客户原文只写入当前用户本机 Rongwei 数据目录；不要要求或尝试上传 GitHub、公共知识库或其他用户空间。云端模型处理用户主动提交的内容仍可能涉及模型供应商的数据政策。`
+算力与隐私：优先分析用户本轮新增内容和必要的客户摘要，不重复处理整段历史。客户原文只写入当前用户本机 Rongwei 数据目录；不要要求或尝试上传 GitHub、公共知识库或其他用户空间。云端模型处理用户主动提交的内容仍可能涉及模型供应商的数据政策。只有用户明确要求时才创建或恢复备份；恢复前会自动保留当前数据库快照。`
   })
 
   ctx.tools.register(defineTool({
@@ -113,6 +113,36 @@ export function apply(ctx) {
         .map(([category, description]) => ({ category, description }))
       const result = await store.followup(validateFollowup({ ...args, commitments }))
       return JSON.stringify(result)
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_backup_create',
+    description: '仅在用户明确要求备份时，创建当前加密客户数据库的本地备份。备份文件仍为 AES-256-GCM 密文。',
+    parameters: {},
+    output: stringOutput,
+    async execute() {
+      return JSON.stringify(await store.createBackup())
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_backup_list',
+    description: '列出当前用户本机 Rongwei 加密备份文件。',
+    parameters: { limit: { type: 'integer', description: '返回条数，1 到 50，默认 20' } },
+    output: stringOutput,
+    async execute(args) {
+      return JSON.stringify({ backups: await store.listBackups(args.limit ?? 20) })
+    }
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'rongwei_backup_restore',
+    description: '仅在用户明确指定要恢复某个备份时调用。会先验证备份密钥和完整性，并在覆盖当前数据库前自动保存一份安全快照。',
+    parameters: { backup_id: { type: 'string', required: true, description: '由 rongwei_backup_list 返回的备份文件编号' } },
+    output: stringOutput,
+    async execute(args) {
+      return JSON.stringify(await store.restoreBackup(args.backup_id))
     }
   }))
 
