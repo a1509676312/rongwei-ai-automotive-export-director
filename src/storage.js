@@ -163,7 +163,7 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
           attachment_metadata: event.attachment_metadata || null,
           ad_attribution: event.ad_attribution || null,
           intent_level: event.intent_level || null, purchase_power: event.purchase_power || null,
-          evidence: event.evidence || null, next_followup_at: event.next_followup_at || null
+          intent_evidence: event.intent_evidence || null, purchase_power_evidence: event.purchase_power_evidence || null, next_followup_at: event.next_followup_at || null
         })),
         open_commitments: customer.commitments.filter(item => item.status === 'open')
       }))
@@ -180,7 +180,8 @@ export function createStore({ directory = dataDirectory(), clock = () => new Dat
           customer_response: input.customer_response || '',
           intent_level: input.intent_level || null,
           purchase_power: input.purchase_power || null,
-          evidence: input.evidence || '',
+          intent_evidence: input.intent_evidence || '',
+          purchase_power_evidence: input.purchase_power_evidence || '',
           next_followup_at: input.next_followup_at || null
         }
         customer.events.push(event)
