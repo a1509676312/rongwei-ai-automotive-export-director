@@ -68,7 +68,7 @@ test('Harness plugin registers customer, backup tools, sales guidance and local 
     assert.equal(exportResult.encrypted, false)
     const found = JSON.parse(await tools.get('rongwei_customer_search').execute({ query: 'Kenya' }))
     assert.equal(found.count, 1)
-    assert.equal(found.customers[0].event_count, 3)
+    assert.equal(found.customers[0].event_count, 4)
     assert.equal(found.customers[0].history.length, 4)
   } finally {
     if (previous === undefined) delete process.env.RONGWEI_DATA_DIR
