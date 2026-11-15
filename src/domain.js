@@ -98,7 +98,7 @@ export function calculateQuote(input) {
   }
   if (margin !== null && margin < minimum) warnings.push('当前毛利率低于设定的最低利润率门槛。')
   if (input.incoterm === 'FOB' && (amounts.freight > 0n || amounts.insurance > 0n)) warnings.push('已输入的海运费/保险费未计入 FOB 卖方成本；请确认它们是否应作为买方承担费用或另行列示。')
-  const costBreakdown = Object.fromEntries(fields.map(key => [key, fromMinorUnits(amounts[key], digits)]))
+  const costBreakdown = Object.fromEntries(fields.filter(key => key !== 'sale_price').map(key => [key, fromMinorUnits(amounts[key], digits)]))
   return {
     incoterm: input.incoterm, incoterms_version: '2020', currency: input.currency, currency_minor_digits: digits,
     seller_costs: costBreakdown, total_seller_cost: fromMinorUnits(totalCost, digits),
