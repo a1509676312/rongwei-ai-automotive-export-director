@@ -30,38 +30,82 @@ export function validateFollowup(input) {
   return input
 }
 
+function currencyDigits(currency) {
+  if (['JPY', 'KRW', 'VND', 'CLP', 'XOF', 'XAF'].includes(currency)) return 0
+  if (['KWD', 'BHD', 'OMR', 'JOD', 'TND'].includes(currency)) return 3
+  return 2
+}
+
+function toMinorUnits(value, digits, field) {
+  if (!Number.isFinite(value) || value < 0) throw new Error(\`\${field} 必须是大于或等于 0 的有效数字。\`)
+  const text = String(value)
+  const match = text.match(/^(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i)
+  if (!match) throw new Error(\`\${field} 金额格式无效。\`)
+  const fraction = match[2] || ''
+  const exponent = Number(match[3] || 0)
+  const allDigits = BigInt(match[1] + fraction)
+  const scale = fraction.length - exponent
+  if (scale <= digits) return allDigits * (10n ** BigInt(digits - scale))
+  const divisor = 10n ** BigInt(scale - digits)
+  const quotient = allDigits / divisor
+  const remainder = allDigits % divisor
+  return quotient + (remainder * 2n >= divisor ? 1n : 0n)
+}
+
+function fromMinorUnits(value, digits) {
+  const base = 10n ** BigInt(digits)
+  const whole = value / base
+  const fraction = (value % base).toString().padStart(digits, '0')
+  return digits ? \`\${whole}.\${fraction}\` : whole.toString()
+}
+
 export function calculateQuote(input) {
   if (!input || !['FOB', 'CIF', 'CIP'].includes(input.incoterm)) throw new Error('贸易术语仅支持 FOB/CIF/CIP（Incoterms 2020）。')
   if (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency)) throw new Error('必须提供三位大写货币代码，例如 USD。')
+  if (['FOB', 'CIF'].includes(input.incoterm) && input.transport_mode && !['sea', 'inland_waterway'].includes(input.transport_mode)) throw new Error('FOB/CIF 仅适用于海运或内河水运；其他运输方式请评估 FCA/CPT/CIP。')
+  const digits = currencyDigits(input.currency)
   const required = ['vehicle_cost', 'sale_price']
-  for (const key of required) {
-    if (!Number.isFinite(input[key]) || input[key] < 0) throw new Error(`${key} 必须是大于或等于 0 的数字。`)
+  const fields = ['vehicle_cost', 'origin_inland', 'export_clearance', 'loading', 'inspection', 'bank_fee', 'commission', 'other_seller_costs', 'freight', 'insurance']
+  const amounts = {}
+  for (const field of fields) {
+    if (required.includes(field) || input[field] !== undefined) amounts[field] = toMinorUnits(input[field] ?? 0, digits, field)
+    else amounts[field] = 0n
   }
-  const costFields = ['origin_inland', 'export_clearance', 'loading', 'freight', 'insurance']
-  for (const key of costFields) {
-    if (input[key] !== undefined && (!Number.isFinite(input[key]) || input[key] < 0)) throw new Error(`${key} 必须是大于或等于 0 的数字。`)
-  }
-  if (['CIF', 'CIP'].includes(input.incoterm) && (!Number.isFinite(input.freight) || !Number.isFinite(input.insurance))) {
-    throw new Error('CIF/CIP 计算必须提供实际运输费用和保险费用；不得自动估算。')
-  }
-  const sellerCosts = input.vehicle_cost + (input.origin_inland || 0) + (input.export_clearance || 0) + (input.loading || 0)
-  const totalSellerCost = sellerCosts + (['CIF', 'CIP'].includes(input.incoterm) ? input.freight + input.insurance : 0)
-  const grossProfit = input.sale_price - totalSellerCost
-  const marginPercent = input.sale_price > 0 ? grossProfit / input.sale_price * 100 : null
+  if (['CIF', 'CIP'].includes(input.incoterm) && (input.freight === undefined || input.insurance === undefined)) throw new Error('CIF/CIP 计算必须提供实际运输费用和保险费用；不得自动估算。')
+  const sellerCostKeys = ['vehicle_cost', 'origin_inland', 'export_clearance', 'loading', 'inspection', 'bank_fee', 'commission', 'other_seller_costs']
+  if (['CIF', 'CIP'].includes(input.incoterm)) sellerCostKeys.push('freight', 'insurance')
+  const totalCost = sellerCostKeys.reduce((sum, key) => sum + amounts[key], 0n)
+  const profit = amounts.sale_price - totalCost
+  const margin = amounts.sale_price > 0n ? Number((profit * 10000n) / amounts.sale_price) / 100 : null
   const minimum = input.minimum_margin_percent ?? 0
   if (!Number.isFinite(minimum) || minimum < 0 || minimum > 100) throw new Error('最低利润率必须在 0 到 100 之间。')
   const warnings = []
-  if (input.incoterm === 'FOB') warnings.push('FOB：卖方费用通常计至装运港货物装上船；风险在货物装上船时转移。海运费与保险费不计入本次卖方 FOB 成本。')
-  if (input.incoterm === 'CIF') warnings.push('CIF：卖方支付至指定目的港的运费并按规则投保最低保险保障（通常为 ICC(C)，保险金额通常至少为合同价的 110%，除非另有约定）；风险仍在装运港货物装上船时转移。')
-  if (input.incoterm === 'CIP') warnings.push('CIP：卖方支付至指定目的地的运输并按规则投保较高保险保障（通常为 ICC(A)，保险金额通常至少为合同价的 110%，除非另有约定）；风险在货物交给第一承运人时转移。')
-  if (marginPercent !== null && marginPercent < minimum) warnings.push('当前毛利率低于设定的最低利润率门槛。')
-  if (input.incoterm === 'FOB' && ((input.freight || 0) > 0 || (input.insurance || 0) > 0)) warnings.push('已输入的海运费/保险费未计入 FOB 卖方成本；请确认它们是否应作为买方承担费用或另行列示。')
+  if (input.incoterm === 'FOB') {
+    warnings.push('FOB：仅适用于海运/内河水运；卖方费用计至装运港货物装上船，风险在装上船时转移。海运费与保险费不计入 FOB 卖方成本。')
+    if (!input.transport_mode) warnings.push('尚未确认运输方式；请核实为海运或内河水运。')
+  }
+  if (input.incoterm === 'CIF') {
+    warnings.push('CIF：仅适用于海运/内河水运；卖方支付至指定目的港的运费和保险费，但风险仍在装运港货物装上船时转移。')
+    if (!input.transport_mode) warnings.push('尚未确认运输方式；请核实为海运或内河水运。')
+  }
+  if (input.incoterm === 'CIP') warnings.push('CIP：适用于任何运输方式；卖方支付至指定目的地的运输和保险，风险在交给第一承运人时转移。')
+  const requiredClause = input.incoterm === 'CIF' ? ['ICC(C)', 'ICC C'] : ['ICC(A)', 'ICC A']
+  if (['CIF', 'CIP'].includes(input.incoterm)) {
+    if (input.insurance_coverage_percent !== undefined && (!Number.isFinite(input.insurance_coverage_percent) || input.insurance_coverage_percent < 110)) throw new Error('Incoterms 2020 通常要求保险金额至少为合同价的 110%；低于该值需核实合同是否另有约定。')
+    if (input.insurance_coverage_percent === undefined) warnings.push('未提供保险金额比例；通常至少按合同价 110% 投保，需核对保险凭证和合同约定。')
+    if (!input.insurance_clause) warnings.push(\`未提供保险条款；\${input.incoterm} 通常分别要求较低的 ICC(C) 或较高的 ICC(A) 保障，需核对保单及合同。\`)
+    else if (!requiredClause.some(item => String(input.insurance_clause).toUpperCase().includes(item.toUpperCase()))) warnings.push(\`所填保险条款与 \${input.incoterm} 通常要求的保障范围不同，请人工核对是否有合同特别约定。\`)
+  }
+  if (margin !== null && margin < minimum) warnings.push('当前毛利率低于设定的最低利润率门槛。')
+  if (input.incoterm === 'FOB' && (amounts.freight > 0n || amounts.insurance > 0n)) warnings.push('已输入的海运费/保险费未计入 FOB 卖方成本；请确认它们是否应作为买方承担费用或另行列示。')
+  const costBreakdown = Object.fromEntries(fields.map(key => [key, fromMinorUnits(amounts[key], digits)]))
   return {
-    incoterm: input.incoterm, incoterms_version: '2020', currency: input.currency,
-    seller_costs: { vehicle: input.vehicle_cost, origin_inland: input.origin_inland || 0, export_clearance: input.export_clearance || 0, loading: input.loading || 0, freight: ['CIF', 'CIP'].includes(input.incoterm) ? input.freight : 0, insurance: ['CIF', 'CIP'].includes(input.incoterm) ? input.insurance : 0 },
-    total_seller_cost: Number(totalSellerCost.toFixed(2)), sale_price: input.sale_price,
-    gross_profit: Number(grossProfit.toFixed(2)), gross_margin_percent: marginPercent === null ? null : Number(marginPercent.toFixed(2)),
-    minimum_margin_percent: minimum, meets_minimum_margin: marginPercent !== null && marginPercent >= minimum,
+    incoterm: input.incoterm, incoterms_version: '2020', currency: input.currency, currency_minor_digits: digits,
+    seller_costs: costBreakdown, total_seller_cost: fromMinorUnits(totalCost, digits),
+    sale_price: fromMinorUnits(amounts.sale_price, digits), gross_profit: fromMinorUnits(profit, digits),
+    gross_margin_percent: margin, minimum_margin_percent: minimum,
+    meets_minimum_margin: margin !== null && margin >= minimum,
+    insurance_clause: input.insurance_clause || null, insurance_coverage_percent: input.insurance_coverage_percent ?? null,
     warnings, customer_quote_generated: false
   }
 }
