@@ -34,7 +34,7 @@ export function apply(ctx) {
     output: stringOutput,
     async execute(args) {
       const result = await store.capture(validateCapture(args))
-      return JSON.stringify({ ...result, local_file: store.file, privacy: '仅本机本地文件；不会自动上传公共仓库' })
+      return JSON.stringify({ customer_id: result.customer_id, status: result.status, profile: result.customer.profile, event_count: result.customer.events.length, local_file: store.file, privacy: '仅本机本地文件；不会自动上传公共仓库' })
     }
   }))
 
