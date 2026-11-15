@@ -1,9 +1,11 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { randomBytes } from 'node:crypto'
 import { createStore } from './storage.js'
 import { validateCapture, validateFollowup } from './domain.js'
 
 export const name = 'rongwei-ai-automotive-export-director'
-export const inject = ['tools', 'systemPrompt']
+export const inject = ['tools', 'systemPrompt', 'credentials']
 
 const stringOutput = {
   schema: { type: 'string' },
@@ -11,7 +13,23 @@ const stringOutput = {
 }
 
 export function apply(ctx) {
-  const store = createStore()
+  const encryptionKeyRef = credentialRef('RONGWEI_CUSTOMER_DB_KEY')
+  let encryptionKeyPromise
+  const getEncryptionKey = () => {
+    if (!encryptionKeyPromise) {
+      encryptionKeyPromise = (async () => {
+        const existing = await ctx.credentials.resolve(encryptionKeyRef)
+        if (existing?.value) return existing.value
+        const generated = randomBytes(32).toString('base64')
+        await ctx.credentials.set(encryptionKeyRef, generated)
+        const saved = await ctx.credentials.resolve(encryptionKeyRef)
+        if (!saved?.value) throw new Error('无法在 DeepSeek Harness 本地凭据库中保存 Rongwei 加密密钥。')
+        return saved.value
+      })()
+    }
+    return encryptionKeyPromise
+  }
+  const store = createStore({ keyProvider: getEncryptionKey })
 
   ctx.systemPrompt.section({
     name: 'rongwei-sales-director-guidance',
@@ -52,7 +70,7 @@ export function apply(ctx) {
     output: stringOutput,
     async execute(args) {
       const result = await store.capture(validateCapture(args))
-      return JSON.stringify({ customer_id: result.customer_id, status: result.status, profile: result.customer.profile, event_count: result.customer.events.length, local_file: store.file, privacy: '仅本机本地文件；不会自动上传公共仓库' })
+      return JSON.stringify({ customer_id: result.customer_id, status: result.status, profile: result.customer.profile, event_count: result.customer.events.length, local_file: store.file, privacy: '客户库使用 AES-256-GCM 本地加密；密钥由 DeepSeek Harness 本地凭据服务保存，不上传公共仓库' })
     }
   }))
 
