@@ -29,3 +29,39 @@ export function validateFollowup(input) {
   }
   return input
 }
+
+export function calculateQuote(input) {
+  if (!input || !['FOB', 'CIF', 'CIP'].includes(input.incoterm)) throw new Error('贸易术语仅支持 FOB/CIF/CIP（Incoterms 2020）。')
+  if (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency)) throw new Error('必须提供三位大写货币代码，例如 USD。')
+  const required = ['vehicle_cost', 'sale_price']
+  for (const key of required) {
+    if (!Number.isFinite(input[key]) || input[key] < 0) throw new Error(`${key} 必须是大于或等于 0 的数字。`)
+  }
+  const costFields = ['origin_inland', 'export_clearance', 'loading', 'freight', 'insurance']
+  for (const key of costFields) {
+    if (input[key] !== undefined && (!Number.isFinite(input[key]) || input[key] < 0)) throw new Error(`${key} 必须是大于或等于 0 的数字。`)
+  }
+  if (['CIF', 'CIP'].includes(input.incoterm) && (!Number.isFinite(input.freight) || !Number.isFinite(input.insurance))) {
+    throw new Error('CIF/CIP 计算必须提供实际运输费用和保险费用；不得自动估算。')
+  }
+  const sellerCosts = input.vehicle_cost + (input.origin_inland || 0) + (input.export_clearance || 0) + (input.loading || 0)
+  const totalSellerCost = sellerCosts + (['CIF', 'CIP'].includes(input.incoterm) ? input.freight + input.insurance : 0)
+  const grossProfit = input.sale_price - totalSellerCost
+  const marginPercent = input.sale_price > 0 ? grossProfit / input.sale_price * 100 : null
+  const minimum = input.minimum_margin_percent ?? 0
+  if (!Number.isFinite(minimum) || minimum < 0 || minimum > 100) throw new Error('最低利润率必须在 0 到 100 之间。')
+  const warnings = []
+  if (input.incoterm === 'FOB') warnings.push('FOB：卖方费用通常计至装运港货物装上船；风险在货物装上船时转移。海运费与保险费不计入本次卖方 FOB 成本。')
+  if (input.incoterm === 'CIF') warnings.push('CIF：卖方支付至指定目的港的运费并按规则投保最低保险保障（通常为 ICC(C)）；风险仍在装运港货物装上船时转移。')
+  if (input.incoterm === 'CIP') warnings.push('CIP：卖方支付至指定目的地的运输并按规则投保较高保险保障（通常为 ICC(A)）；风险在货物交给第一承运人时转移。')
+  if (marginPercent !== null && marginPercent < minimum) warnings.push('当前毛利率低于设定的最低利润率门槛。')
+  if (input.incoterm === 'FOB' && ((input.freight || 0) > 0 || (input.insurance || 0) > 0)) warnings.push('已输入的海运费/保险费未计入 FOB 卖方成本；请确认它们是否应作为买方承担费用或另行列示。')
+  return {
+    incoterm: input.incoterm, incoterms_version: '2020', currency: input.currency,
+    seller_costs: { vehicle: input.vehicle_cost, origin_inland: input.origin_inland || 0, export_clearance: input.export_clearance || 0, loading: input.loading || 0, freight: ['CIF', 'CIP'].includes(input.incoterm) ? input.freight : 0, insurance: ['CIF', 'CIP'].includes(input.incoterm) ? input.insurance : 0 },
+    total_seller_cost: Number(totalSellerCost.toFixed(2)), sale_price: input.sale_price,
+    gross_profit: Number(grossProfit.toFixed(2)), gross_margin_percent: marginPercent === null ? null : Number(marginPercent.toFixed(2)),
+    minimum_margin_percent: minimum, meets_minimum_margin: marginPercent !== null && marginPercent >= minimum,
+    warnings, customer_quote_generated: false
+  }
+}
