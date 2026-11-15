@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { apply } from '../src/index.js'
 
-test('Harness plugin registers tools, sales guidance and local encryption key', async () => {
+test('Harness plugin registers customer, backup tools, sales guidance and local encryption key', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-plugin-test-'))
   const previous = process.env.RONGWEI_DATA_DIR
   process.env.RONGWEI_DATA_DIR = directory
@@ -21,7 +21,7 @@ test('Harness plugin registers tools, sales guidance and local encryption key', 
         async set(ref, value) { credentialsStore.set(ref, value) }
       }
     })
-    assert.deepEqual([...tools.keys()].sort(), ['rongwei_customer_capture', 'rongwei_customer_search', 'rongwei_record_followup'])
+    assert.deepEqual([...tools.keys()].sort(), ['rongwei_backup_create', 'rongwei_backup_list', 'rongwei_backup_restore', 'rongwei_customer_capture', 'rongwei_customer_search', 'rongwei_record_followup'])
     assert.equal(sections.length, 1)
     assert.match(sections[0].text, /必须提供至少三种不同策略/)
     assert.match(sections[0].text, /绝不自动发送/)
