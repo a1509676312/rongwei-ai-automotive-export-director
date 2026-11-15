@@ -49,4 +49,5 @@ test('sales lesson and destination fact validation keeps confidence and evidence
   assert.throws(() => validateSalesLesson({ situation: 's', lesson: 'l', confidence: 'verified' }), /证据/)
   assert.throws(() => validateDestinationFact({ country: 'Kenya', content: 'Port notes', evidence_status: 'verified' }), /来源/)
   assert.equal(validateDestinationFact({ country: 'Kenya', content: 'Port notes', evidence_status: 'historical' }).evidence_status, 'historical')
+  assert.throws(() => validateDestinationFact({ country: 'Kenya', content: 'Port notes', evidence_status: 'historical', expires_at: 'not-a-date' }), /YYYY-MM-DD/)
 })
