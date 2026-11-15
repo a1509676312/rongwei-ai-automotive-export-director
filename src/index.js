@@ -123,6 +123,21 @@ export function apply(ctx) {
   }))
 
   ctx.tools.register(defineTool({
+    name: 'rongwei_commitment_update',
+    description: '更新已有客户承诺事项状态。仅在用户明确告知已完成、取消或重新安排时调用，保留更新记录。',
+    parameters: {
+      customer_id: { type: 'string', required: true, description: '客户 ID' },
+      commitment_id: { type: 'string', required: true, description: '客户搜索结果中承诺事项 ID' },
+      status: { type: 'string', required: true, description: 'open/completed/cancelled' },
+      note: { type: 'string', description: '状态变化说明' }
+    },
+    output: stringOutput,
+    async execute(args) {
+      return JSON.stringify(await store.updateCommitment(args))
+    }
+  }))
+
+  ctx.tools.register(defineTool({
     name: 'rongwei_sales_lesson_add',
     description: '仅在用户明确选择/修改销售回复或提供客户成交、丢单结果后，保存一条去客户化的本地销售经验。单次经验不得自动视为通用规律。',
     parameters: {
