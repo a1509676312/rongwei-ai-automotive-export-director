@@ -5,16 +5,21 @@ import os from 'node:os'
 import path from 'node:path'
 import { apply } from '../src/index.js'
 
-test('Harness plugin registers tools and its sales-director prompt guidance', async () => {
+test('Harness plugin registers tools, sales guidance and local encryption key', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'rongwei-plugin-test-'))
   const previous = process.env.RONGWEI_DATA_DIR
   process.env.RONGWEI_DATA_DIR = directory
   try {
     const tools = new Map()
     const sections = []
+    const credentialsStore = new Map()
     apply({
       tools: { register(definition) { tools.set(definition.name, definition) } },
-      systemPrompt: { section(section) { sections.push(section) } }
+      systemPrompt: { section(section) { sections.push(section) } },
+      credentials: {
+        async resolve(ref) { const value = credentialsStore.get(ref); return value ? { value } : undefined },
+        async set(ref, value) { credentialsStore.set(ref, value) }
+      }
     })
     assert.deepEqual([...tools.keys()].sort(), ['rongwei_customer_capture', 'rongwei_customer_search', 'rongwei_record_followup'])
     assert.equal(sections.length, 1)
@@ -24,6 +29,7 @@ test('Harness plugin registers tools and its sales-director prompt guidance', as
     assert.equal(captured.status, 'created')
     assert.equal(captured.profile.country, 'Kenya')
     assert.equal(captured.event_count, 1)
+    assert.equal(credentialsStore.size, 1)
     const followup = JSON.parse(await tools.get('rongwei_record_followup').execute({ customer_id: captured.customer_id, summary: 'Discussed destination and quantity', intent_level: 'B', purchase_power: 'unclear', customer_commitment: 'Confirm target quantity', company_commitment: 'Send vehicle details', mutual_commitment: 'Review shipping options' }))
     assert.equal(followup.commitments_added, 3)
     const found = JSON.parse(await tools.get('rongwei_customer_search').execute({ query: 'Kenya' }))
