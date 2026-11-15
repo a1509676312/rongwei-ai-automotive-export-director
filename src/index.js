@@ -44,7 +44,7 @@ export function apply(ctx) {
 
 跟进闭环：记录跟进时，分别保存客户承诺、我方承诺、双方约定，并尽量给出明确的下一次跟进时间。调用 rongwei_record_followup 时，意向等级必须提供 intent_evidence，购买力必须单独提供 purchase_power_evidence；每项至少 5 个字符的客户原话或可核实事实。不得用一条证据自动证明两个不同判断。证据不足时对应评级字段留空。
 
-目的地知识：调用 rongwei_destination_fact_add 保存用户提供或核实的国家/港口/内陆目的地资料，并标注 verified/historical/ai_estimate/expired 状态；查询时必须展示资料状态、来源和有效期，不得把历史参考或 AI 推测说成已核实事实。销售经验：用户明确选择/修改回复或提供成交/丢单结果后，可调用 rongwei_sales_lesson_add 记录去客户化的情境、策略和结果；查询时区分单次经验、重复规律和已验证经验，不自动将单次案例推广成通用规律。汽车出口专业性：区分贸易术语中的费用承担与风险转移；涉及 FOB/CIF/CIP 时不得混淆。用户提供实际成本和售价时，调用 rongwei_quote_calculate 进行内部成本/毛利计算；不得自行估算缺失成本，也不得把内部计算结果自动当作客户报价。目的国、港口、内陆运输、海关或法规信息如未核实，应标明待核实，不得凭空给出确定结论。当前没有自动报价、港口实时数据库或外部车辆识别能力时，必须坦诚说明。
+目的地知识：调用 rongwei_destination_fact_add 保存用户提供或核实的国家/港口/内陆目的地资料，并标注 verified/historical/ai_estimate/expired 状态；查询时必须展示资料状态、来源和有效期，不得把历史参考或 AI 推测说成已核实事实。销售经验：用户明确选择/修改回复或提供成交/丢单结果后，可调用 rongwei_sales_lesson_add 记录去客户化的情境、策略和结果；查询时区分单次经验、重复规律和已验证经验，不自动将单次案例推广成通用规律。汽车出口专业性：区分贸易术语中的费用承担与风险转移；涉及 FOB/CIF/CIP 时不得混淆。用户提供实际成本和售价时，调用 rongwei_quote_calculate 进行内部成本/毛利计算；不得自行估算缺失成本，也不得把内部计算结果自动当作客户报价。跨币种换算只能使用用户提供且在有效期内的汇率，并保留来源和日期。目的国、港口、内陆运输、海关或法规信息如未核实，应标明待核实，不得凭空给出确定结论。当前没有自动报价、港口实时数据库或外部车辆识别能力时，必须坦诚说明。
 
 算力与隐私：优先分析用户本轮新增内容和必要的客户摘要，不重复处理整段历史。供应商成本、公司资料和广告来源归因仅保存在当前用户本机。只有用户明确要求时才调用 rongwei_data_export 生成可读 JSON；导出包含敏感客户资料，必须提醒妥善保管。客户原文只写入当前用户本机 Rongwei 数据目录；不要要求或尝试上传 GitHub、公共知识库或其他用户空间。云端模型处理用户主动提交的内容仍可能涉及模型供应商的数据政策。只有用户明确要求时才创建或恢复备份；恢复前会自动保留当前数据库快照。`
   })
@@ -233,6 +233,16 @@ export function apply(ctx) {
       incoterm: { type: 'string', required: true, description: 'FOB、CIF 或 CIP' },
       currency: { type: 'string', required: true, description: '三位大写货币代码，例如 USD' },
       vehicle_cost: { type: 'number', required: true, description: '车辆采购成本' },
+      vehicle_cost_currency: { type: 'string', description: '车辆成本币种；不填默认结算币种' },
+      origin_inland_currency: { type: 'string', description: '起运地内陆运输成本币种' },
+      export_clearance_currency: { type: 'string', description: '出口报关成本币种' },
+      loading_currency: { type: 'string', description: '装载费用币种' },
+      inspection_currency: { type: 'string', description: '检验费用币种' },
+      bank_fee_currency: { type: 'string', description: '银行费用币种' },
+      commission_currency: { type: 'string', description: '佣金币种' },
+      other_seller_costs_currency: { type: 'string', description: '其他卖方费用币种' },
+      freight_currency: { type: 'string', description: '运费币种' },
+      insurance_currency: { type: 'string', description: '保险费币种' },
       sale_price: { type: 'number', required: true, description: '用户提供的内部销售价' },
       origin_inland: { type: 'number', description: '起运地内陆运输费用' },
       export_clearance: { type: 'number', description: '出口报关及相关费用' },
@@ -246,6 +256,10 @@ export function apply(ctx) {
       other_seller_costs: { type: 'number', description: '其他由卖方承担的实际费用' },
       insurance_clause: { type: 'string', description: '实际保险条款，例如 ICC(A) 或 ICC(C)' },
       insurance_coverage_percent: { type: 'number', description: '保险金额占合同价比例，通常至少 110%' },
+      exchange_rates_json: { type: 'string', description: '用户提供的 JSON 汇率映射，例如 {"CNY":0.14} 表示 1 CNY=0.14 USD；仅当有外币成本时使用' },
+      fx_source: { type: 'string', description: '汇率来源，例如银行/用户提供报价单' },
+      fx_as_of: { type: 'string', description: '汇率日期 YYYY-MM-DD' },
+      fx_valid_until: { type: 'string', description: '汇率有效期 YYYY-MM-DD' },
       minimum_margin_percent: { type: 'number', description: '公司最低毛利率门槛，百分比' }
     },
     output: stringOutput,
