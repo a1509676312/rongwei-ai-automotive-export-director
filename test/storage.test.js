@@ -74,7 +74,7 @@ test('followup stores customer, company and mutual commitments separately', asyn
   try {
     const store = makeStore({ directory })
     const customer = await store.capture({ conversation_text: 'first message' })
-    const result = await store.followup({ customer_id: customer.customer_id, summary: 'Sent vehicle details', evidence: '客户确认收到车型资料', intent_level: 'B', commitments: [
+    const result = await store.followup({ customer_id: customer.customer_id, summary: 'Sent vehicle details', intent_evidence: '客户确认收到车型资料', intent_level: 'B', commitments: [
       { category: 'customer', description: 'Confirm quantity' },
       { category: 'company', description: 'Send inspection video' },
       { category: 'mutual', description: 'Review shipping options' }
@@ -84,7 +84,7 @@ test('followup stores customer, company and mutual commitments separately', asyn
     assert.deepEqual(exported.customers[0].commitments.map(x => x.category), ['customer', 'company', 'mutual'])
     const history = await store.search(customer.customer_id)
     assert.equal(history[0].history.length, 2)
-    assert.equal(history[0].history[1].evidence, '客户确认收到车型资料')
+    assert.equal(history[0].history[1].intent_evidence, '客户确认收到车型资料')
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
